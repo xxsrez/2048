@@ -247,7 +247,7 @@ h1 {
   cursor: default;
   pointer-events: auto;
   user-select: none;
-  transition: transform 170ms ease-in-out;
+  transition: transform 100ms ease-in-out;
   will-change: transform;
 }
 
@@ -289,11 +289,11 @@ h1 {
 }
 
 .tile.is-new .tile-inner {
-  animation: tile-appear 210ms ease 90ms both;
+  animation: tile-appear 200ms ease both;
 }
 
 .tile.is-merged .tile-inner {
-  animation: tile-pop 220ms ease 90ms both;
+  animation: tile-pop 200ms ease both;
 }
 
 .tile-2 .tile-inner {

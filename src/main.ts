@@ -44,6 +44,7 @@ interface RuntimeState {
   history: Snapshot[];
   mode: HelperMode;
   selection: Position[];
+  isAnimating: boolean;
   lastGain: number;
   message: string;
 }
@@ -57,9 +58,15 @@ interface PersistedGame {
   history: Snapshot[];
 }
 
+interface MoveAnimation {
+  slidingTiles: RenderTile[];
+  settledTiles: RenderTile[];
+}
+
 const BEST_SCORE_KEY = "local-2048-best-score";
 const GAME_STATE_KEY = "local-2048-game-state";
 const HISTORY_LIMIT = 100;
+const MOVE_SETTLE_MS = 120;
 const ANIMATION_RESET_MS = 260;
 const SWIPE_THRESHOLD = 36;
 
@@ -174,6 +181,7 @@ const deleteButton = getElement<HTMLButtonElement>("delete");
 
 let pointerStart: { x: number; y: number } | null = null;
 let nextTileId = 1;
+let moveAnimationTimer: number | undefined;
 let animationCleanupTimer: number | undefined;
 let tileMetrics = {
   size: 0,
@@ -197,6 +205,7 @@ const state: RuntimeState = {
   history: savedGame?.history ?? [],
   mode: "move",
   selection: [],
+  isAnimating: false,
   lastGain: 0,
   message: savedGame ? "Restored" : "Ready",
 };
@@ -310,6 +319,7 @@ function pushHistory(): void {
 }
 
 function startNewGame(): void {
+  clearAnimationTimers();
   state.board = createInitialBoard();
   state.tiles = createRenderTiles(state.board, true);
   state.score = 0;
@@ -317,6 +327,7 @@ function startNewGame(): void {
   state.history = [];
   state.mode = "move";
   state.selection = [];
+  state.isAnimating = false;
   state.lastGain = 0;
   state.message = "Ready";
   render();
@@ -324,6 +335,10 @@ function startNewGame(): void {
 }
 
 function keepGoing(): void {
+  if (state.isAnimating) {
+    return;
+  }
+
   state.keepPlaying = true;
   state.message = "Keep going";
   render();
@@ -331,6 +346,11 @@ function keepGoing(): void {
 }
 
 function undo(): void {
+  if (state.isAnimating) {
+    return;
+  }
+
+  clearAnimationTimers();
   const previous = state.history.pop();
 
   if (!previous) {
@@ -352,6 +372,10 @@ function undo(): void {
 }
 
 function toggleMode(mode: Exclude<HelperMode, "move">): void {
+  if (state.isAnimating) {
+    return;
+  }
+
   if (getGameStatus(state.board, state.keepPlaying) !== "playing") {
     return;
   }
@@ -372,6 +396,10 @@ function toggleMode(mode: Exclude<HelperMode, "move">): void {
 }
 
 function handleCellClick(position: Position): void {
+  if (state.isAnimating) {
+    return;
+  }
+
   const status = getGameStatus(state.board, state.keepPlaying);
 
   if (status !== "playing" || state.mode === "move") {
@@ -426,6 +454,10 @@ function handleCellClick(position: Position): void {
 }
 
 function move(direction: Direction): void {
+  if (state.isAnimating) {
+    return;
+  }
+
   const status = getGameStatus(state.board, state.keepPlaying);
 
   if (status !== "playing") {
@@ -447,29 +479,36 @@ function move(direction: Direction): void {
   }
 
   pushHistory();
-  const movedTiles = moveRenderTiles(state.tiles, direction);
+  const moveAnimation = createMoveAnimation(state.tiles, direction);
   const spawn = spawnTileWithPosition(result.board);
   state.board = spawn.board;
-  state.tiles = movedTiles;
-
-  if (spawn.position && spawn.value) {
-    state.tiles.push({
-      id: nextTileId,
-      value: spawn.value,
-      row: spawn.position.row,
-      col: spawn.position.col,
-      isNew: true,
-      isMerged: false,
-    });
-    nextTileId += 1;
-  }
-
+  state.tiles = moveAnimation.slidingTiles;
+  state.isAnimating = true;
   state.score += result.scoreGain;
   state.bestScore = Math.max(state.bestScore, state.score);
   state.lastGain = result.scoreGain;
   state.message = result.scoreGain > 0 ? `+${result.scoreGain}` : "Moved";
   writeBestScore(state.bestScore);
   render();
+
+  moveAnimationTimer = window.setTimeout(() => {
+    state.tiles = moveAnimation.settledTiles;
+
+    if (spawn.position && spawn.value) {
+      state.tiles.push({
+        id: nextTileId,
+        value: spawn.value,
+        row: spawn.position.row,
+        col: spawn.position.col,
+        isNew: true,
+        isMerged: false,
+      });
+      nextTileId += 1;
+    }
+
+    state.isAnimating = false;
+    render();
+  }, MOVE_SETTLE_MS);
 }
 
 function render(): void {
@@ -484,9 +523,9 @@ function render(): void {
   statusLineElement.textContent = state.message;
   boardElement.dataset.mode = state.mode;
 
-  undoButton.disabled = state.history.length === 0;
-  swapButton.disabled = status !== "playing" || occupiedCells < 2;
-  deleteButton.disabled = status !== "playing" || occupiedCells === 0;
+  undoButton.disabled = state.history.length === 0 || state.isAnimating;
+  swapButton.disabled = state.isAnimating || status !== "playing" || occupiedCells < 2;
+  deleteButton.disabled = state.isAnimating || status !== "playing" || occupiedCells === 0;
   swapButton.classList.toggle("is-active", state.mode === "swap");
   deleteButton.classList.toggle("is-active", state.mode === "delete");
   swapButton.setAttribute("aria-pressed", String(state.mode === "swap"));
@@ -620,8 +659,12 @@ function createRenderTiles(board: Board, markNew = false): RenderTile[] {
   return tiles;
 }
 
-function moveRenderTiles(tiles: RenderTile[], direction: Direction): RenderTile[] {
-  const movedTiles: RenderTile[] = [];
+function createMoveAnimation(
+  tiles: RenderTile[],
+  direction: Direction,
+): MoveAnimation {
+  const slidingTiles: RenderTile[] = [];
+  const settledTiles: RenderTile[] = [];
 
   for (let lineIndex = 0; lineIndex < GRID_SIZE; lineIndex += 1) {
     const lineTiles = getLineTiles(tiles, direction, lineIndex);
@@ -632,16 +675,41 @@ function moveRenderTiles(tiles: RenderTile[], direction: Direction): RenderTile[
       const next = lineTiles[index + 1];
 
       if (next && current.value === next.value) {
-        movedTiles.push({
-          ...getTargetTile(next, direction, lineIndex, outputIndex),
+        const targetPosition = getTargetPosition(direction, lineIndex, outputIndex);
+
+        slidingTiles.push({
+          ...current,
+          ...targetPosition,
+          isNew: false,
+          isMerged: false,
+        });
+        slidingTiles.push({
+          ...next,
+          ...targetPosition,
+          isNew: false,
+          isMerged: false,
+        });
+        settledTiles.push({
+          id: nextTileId,
           value: current.value * 2,
+          ...targetPosition,
           isNew: false,
           isMerged: true,
         });
+        nextTileId += 1;
         index += 1;
       } else {
-        movedTiles.push({
-          ...getTargetTile(current, direction, lineIndex, outputIndex),
+        const targetPosition = getTargetPosition(direction, lineIndex, outputIndex);
+
+        slidingTiles.push({
+          ...current,
+          ...targetPosition,
+          isNew: false,
+          isMerged: false,
+        });
+        settledTiles.push({
+          ...current,
+          ...targetPosition,
           isNew: false,
           isMerged: false,
         });
@@ -651,7 +719,7 @@ function moveRenderTiles(tiles: RenderTile[], direction: Direction): RenderTile[
     }
   }
 
-  return movedTiles;
+  return { slidingTiles, settledTiles };
 }
 
 function getLineTiles(
@@ -682,25 +750,24 @@ function getLineTiles(
   });
 }
 
-function getTargetTile(
-  tile: RenderTile,
+function getTargetPosition(
   direction: Direction,
   lineIndex: number,
   outputIndex: number,
-): RenderTile {
+): Position {
   if (direction === "left") {
-    return { ...tile, row: lineIndex, col: outputIndex };
+    return { row: lineIndex, col: outputIndex };
   }
 
   if (direction === "right") {
-    return { ...tile, row: lineIndex, col: GRID_SIZE - 1 - outputIndex };
+    return { row: lineIndex, col: GRID_SIZE - 1 - outputIndex };
   }
 
   if (direction === "up") {
-    return { ...tile, row: outputIndex, col: lineIndex };
+    return { row: outputIndex, col: lineIndex };
   }
 
-  return { ...tile, row: GRID_SIZE - 1 - outputIndex, col: lineIndex };
+  return { row: GRID_SIZE - 1 - outputIndex, col: lineIndex };
 }
 
 function swapRenderTiles(
@@ -764,6 +831,12 @@ function scheduleAnimationCleanup(): void {
     }));
     renderTiles();
   }, ANIMATION_RESET_MS);
+}
+
+function clearAnimationTimers(): void {
+  window.clearTimeout(moveAnimationTimer);
+  window.clearTimeout(animationCleanupTimer);
+  state.isAnimating = false;
 }
 
 function readBestScore(): number {

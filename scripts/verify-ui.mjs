@@ -51,6 +51,44 @@ try {
   await page.locator(".tile").nth(0).click();
   await page.locator(".tile").nth(1).click();
 
+  await page.evaluate(() => {
+    window.localStorage.setItem(
+      "local-2048-game-state",
+      JSON.stringify({
+        version: 1,
+        board: [
+          [2, 2, 0, 0],
+          [0, 0, 0, 0],
+          [0, 0, 0, 0],
+          [0, 0, 0, 0],
+        ],
+        score: 0,
+        bestScore: 0,
+        keepPlaying: false,
+        history: [],
+      }),
+    );
+  });
+  await page.reload({ waitUntil: "networkidle" });
+  await page.keyboard.press("ArrowLeft");
+  await page.waitForTimeout(30);
+
+  const slidingTexts = await page.locator(".tile").allTextContents();
+  if (
+    slidingTexts.length !== 2 ||
+    slidingTexts.some((text) => text.trim() !== "2")
+  ) {
+    throw new Error(
+      `Expected both source tiles to remain during merge slide, got ${slidingTexts.join(", ")}`,
+    );
+  }
+
+  await page.waitForTimeout(180);
+  const settledTexts = await page.locator(".tile").allTextContents();
+  if (!settledTexts.some((text) => text.trim() === "4")) {
+    throw new Error(`Expected merged tile after settle, got ${settledTexts.join(", ")}`);
+  }
+
   await page.screenshot({ path: screenshotPath, fullPage: true });
   const screenshot = await stat(screenshotPath);
 
