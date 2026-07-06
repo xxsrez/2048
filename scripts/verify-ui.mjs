@@ -33,6 +33,7 @@ try {
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "networkidle" });
   await page.getByRole("heading", { name: "2048" }).waitFor();
+  await assertFavicon(page);
 
   const initialTiles = await page.locator(".tile").count();
   if (initialTiles !== 2) {
@@ -179,4 +180,21 @@ async function collectTiles(page) {
         ),
       ),
   );
+}
+
+async function assertFavicon(page) {
+  const faviconHref = await page
+    .locator('link[rel="icon"][type="image/png"][sizes="32x32"]')
+    .getAttribute("href");
+
+  if (faviconHref !== "/favicon-32x32.png") {
+    throw new Error(`Expected PNG favicon link, got ${faviconHref}`);
+  }
+
+  const response = await page.request.get(new URL(faviconHref, url).toString());
+  const contentType = response.headers()["content-type"];
+
+  if (!response.ok() || !contentType?.includes("image/png")) {
+    throw new Error(`PNG favicon did not load correctly: ${response.status()} ${contentType}`);
+  }
 }

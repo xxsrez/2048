@@ -2,7 +2,7 @@
 
 ## 2048 Icon Assets
 
-This project includes `public/favicon.ico` and `public/apple-touch-icon.png` copied from the original 2048 repository by Gabriele Cirulli:
+This project includes `public/favicon.ico` and `public/apple-touch-icon.png` copied from the original 2048 repository by Gabriele Cirulli. `public/favicon-32x32.png` is generated from the copied original `.ico`:
 
 - <https://github.com/gabrielecirulli/2048>
 
