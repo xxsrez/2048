@@ -21,6 +21,12 @@ export interface MoveResult {
   moved: boolean;
 }
 
+export interface SpawnResult {
+  board: Board;
+  position: Position | null;
+  value: number | null;
+}
+
 export type RandomSource = () => number;
 
 export function createEmptyBoard(size = GRID_SIZE): Board {
@@ -113,12 +119,15 @@ export function findEmptyCells(board: Board): Position[] {
   return cells;
 }
 
-export function spawnTile(board: Board, random: RandomSource = Math.random): Board {
+export function spawnTileWithPosition(
+  board: Board,
+  random: RandomSource = Math.random,
+): SpawnResult {
   const nextBoard = cloneBoard(board);
   const emptyCells = findEmptyCells(nextBoard);
 
   if (emptyCells.length === 0) {
-    return nextBoard;
+    return { board: nextBoard, position: null, value: null };
   }
 
   const cellIndex = Math.min(
@@ -126,9 +135,14 @@ export function spawnTile(board: Board, random: RandomSource = Math.random): Boa
     emptyCells.length - 1,
   );
   const cell = emptyCells[cellIndex];
-  nextBoard[cell.row][cell.col] = random() < 0.9 ? 2 : 4;
+  const value = random() < 0.9 ? 2 : 4;
+  nextBoard[cell.row][cell.col] = value;
 
-  return nextBoard;
+  return { board: nextBoard, position: cell, value };
+}
+
+export function spawnTile(board: Board, random: RandomSource = Math.random): Board {
+  return spawnTileWithPosition(board, random).board;
 }
 
 export function createInitialBoard(random: RandomSource = Math.random): Board {

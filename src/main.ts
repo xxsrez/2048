@@ -3,6 +3,7 @@ import "./styles.css";
 import {
   Board,
   Direction,
+  GRID_SIZE,
   Position,
   cloneBoard,
   countOccupiedCells,
@@ -13,7 +14,7 @@ import {
   isOccupied,
   moveBoard,
   positionsEqual,
-  spawnTile,
+  spawnTileWithPosition,
   swapTiles,
 } from "./game";
 
@@ -25,8 +26,18 @@ interface Snapshot {
   keepPlaying: boolean;
 }
 
+interface RenderTile {
+  id: number;
+  value: number;
+  row: number;
+  col: number;
+  isNew: boolean;
+  isMerged: boolean;
+}
+
 interface RuntimeState {
   board: Board;
+  tiles: RenderTile[];
   score: number;
   bestScore: number;
   keepPlaying: boolean;
@@ -39,6 +50,7 @@ interface RuntimeState {
 
 const BEST_SCORE_KEY = "local-2048-best-score";
 const HISTORY_LIMIT = 100;
+const ANIMATION_RESET_MS = 260;
 const SWIPE_THRESHOLD = 36;
 
 const app = document.querySelector<HTMLDivElement>("#app");
@@ -87,7 +99,10 @@ app.innerHTML = `
       </nav>
 
       <div class="board-frame">
-        <div class="board" id="board" role="grid" aria-label="2048 board" tabindex="0"></div>
+        <div class="board" id="board" role="grid" aria-label="2048 board" tabindex="0">
+          <div class="grid-layer" id="grid-layer" aria-hidden="true"></div>
+          <div class="tile-layer" id="tile-layer"></div>
+        </div>
         <div class="result-overlay" id="result-overlay" hidden>
           <div class="result-panel">
             <p id="result-kicker"></p>
@@ -129,6 +144,8 @@ app.innerHTML = `
 createIcons({ icons });
 
 const boardElement = getElement<HTMLDivElement>("board");
+const gridLayerElement = getElement<HTMLDivElement>("grid-layer");
+const tileLayerElement = getElement<HTMLDivElement>("tile-layer");
 const scoreElement = getElement<HTMLElement>("score-value");
 const bestScoreElement = getElement<HTMLElement>("best-score-value");
 const largestTileElement = getElement<HTMLElement>("largest-tile");
@@ -146,9 +163,18 @@ const swapButton = getElement<HTMLButtonElement>("swap");
 const deleteButton = getElement<HTMLButtonElement>("delete");
 
 let pointerStart: { x: number; y: number } | null = null;
+let nextTileId = 1;
+let animationCleanupTimer: number | undefined;
+let tileMetrics = {
+  size: 0,
+  gap: 0,
+};
+
+const initialBoard = createInitialBoard();
 
 const state: RuntimeState = {
-  board: createInitialBoard(),
+  board: initialBoard,
+  tiles: createRenderTiles(initialBoard, true),
   score: 0,
   bestScore: readBestScore(),
   keepPlaying: false,
@@ -159,6 +185,8 @@ const state: RuntimeState = {
   message: "Ready",
 };
 
+renderGrid();
+syncTileMetrics();
 render();
 
 newGameButton.addEventListener("click", startNewGame);
@@ -169,17 +197,22 @@ swapButton.addEventListener("click", () => toggleMode("swap"));
 deleteButton.addEventListener("click", () => toggleMode("delete"));
 
 boardElement.addEventListener("click", (event) => {
-  const cell = (event.target as HTMLElement).closest<HTMLButtonElement>(".cell");
+  const tile = (event.target as HTMLElement).closest<HTMLButtonElement>(".tile");
 
-  if (!cell) {
+  if (!tile) {
     return;
   }
 
   handleCellClick({
-    row: Number(cell.dataset.row),
-    col: Number(cell.dataset.col),
+    row: Number(tile.dataset.row),
+    col: Number(tile.dataset.col),
   });
 });
+
+new ResizeObserver(() => {
+  syncTileMetrics();
+  renderTiles();
+}).observe(tileLayerElement);
 
 boardElement.addEventListener("pointerdown", (event) => {
   pointerStart = { x: event.clientX, y: event.clientY };
@@ -254,6 +287,7 @@ function pushHistory(): void {
 
 function startNewGame(): void {
   state.board = createInitialBoard();
+  state.tiles = createRenderTiles(state.board, true);
   state.score = 0;
   state.keepPlaying = false;
   state.history = [];
@@ -282,6 +316,7 @@ function undo(): void {
   }
 
   state.board = cloneBoard(previous.board);
+  state.tiles = createRenderTiles(state.board);
   state.score = previous.score;
   state.keepPlaying = previous.keepPlaying;
   state.mode = "move";
@@ -328,6 +363,9 @@ function handleCellClick(position: Position): void {
   if (state.mode === "delete") {
     pushHistory();
     state.board = deleteTile(state.board, position);
+    state.tiles = state.tiles.filter(
+      (tile) => tile.row !== position.row || tile.col !== position.col,
+    );
     state.keepPlaying = state.keepPlaying && getLargestTile(state.board) >= 2048;
     state.mode = "move";
     state.selection = [];
@@ -355,6 +393,7 @@ function handleCellClick(position: Position): void {
 
   pushHistory();
   state.board = swapTiles(state.board, selectedPosition, position);
+  state.tiles = swapRenderTiles(state.tiles, selectedPosition, position);
   state.mode = "move";
   state.selection = [];
   state.lastGain = 0;
@@ -384,7 +423,23 @@ function move(direction: Direction): void {
   }
 
   pushHistory();
-  state.board = spawnTile(result.board);
+  const movedTiles = moveRenderTiles(state.tiles, direction);
+  const spawn = spawnTileWithPosition(result.board);
+  state.board = spawn.board;
+  state.tiles = movedTiles;
+
+  if (spawn.position && spawn.value) {
+    state.tiles.push({
+      id: nextTileId,
+      value: spawn.value,
+      row: spawn.position.row,
+      col: spawn.position.col,
+      isNew: true,
+      isMerged: false,
+    });
+    nextTileId += 1;
+  }
+
   state.score += result.scoreGain;
   state.bestScore = Math.max(state.bestScore, state.score);
   state.lastGain = result.scoreGain;
@@ -413,33 +468,60 @@ function render(): void {
   swapButton.setAttribute("aria-pressed", String(state.mode === "swap"));
   deleteButton.setAttribute("aria-pressed", String(state.mode === "delete"));
 
-  renderBoard();
+  renderTiles();
   renderOverlay(status);
+  scheduleAnimationCleanup();
 }
 
-function renderBoard(): void {
+function renderGrid(): void {
+  gridLayerElement.innerHTML = "";
+
+  for (let index = 0; index < 16; index += 1) {
+    const cell = document.createElement("div");
+    cell.className = "grid-cell";
+    gridLayerElement.append(cell);
+  }
+}
+
+function renderTiles(): void {
   const selectedKeys = new Set(
     state.selection.map((position) => `${position.row}:${position.col}`),
   );
+  const liveIds = new Set(state.tiles.map((tile) => tile.id));
 
-  boardElement.innerHTML = "";
-  state.board.forEach((row, rowIndex) => {
-    row.forEach((value, colIndex) => {
-      const cell = document.createElement("button");
-      const selected = selectedKeys.has(`${rowIndex}:${colIndex}`);
-      cell.type = "button";
-      cell.className = getCellClassName(value, selected);
-      cell.dataset.row = String(rowIndex);
-      cell.dataset.col = String(colIndex);
-      cell.setAttribute("role", "gridcell");
-      cell.setAttribute(
-        "aria-label",
-        value > 0 ? `Tile ${value}` : "Empty tile",
-      );
-      cell.textContent = value > 0 ? String(value) : "";
+  tileLayerElement.querySelectorAll<HTMLButtonElement>(".tile").forEach((tile) => {
+    if (!liveIds.has(Number(tile.dataset.id))) {
+      tile.remove();
+    }
+  });
 
-      boardElement.append(cell);
-    });
+  state.tiles.forEach((tile) => {
+    const selected = selectedKeys.has(`${tile.row}:${tile.col}`);
+    let element = tileLayerElement.querySelector<HTMLButtonElement>(
+      `.tile[data-id="${tile.id}"]`,
+    );
+
+    if (!element) {
+      element = document.createElement("button");
+      element.type = "button";
+      element.className = "tile";
+      element.dataset.id = String(tile.id);
+      element.setAttribute("role", "gridcell");
+      element.innerHTML = '<span class="tile-inner"></span>';
+      tileLayerElement.append(element);
+    }
+
+    const inner = element.querySelector<HTMLSpanElement>(".tile-inner");
+    if (!inner) {
+      throw new Error("Tile inner element was not found.");
+    }
+
+    element.className = getTileClassName(tile, selected);
+    element.dataset.row = String(tile.row);
+    element.dataset.col = String(tile.col);
+    element.setAttribute("aria-label", `Tile ${tile.value}`);
+    inner.textContent = String(tile.value);
+    applyTilePosition(element, tile);
   });
 }
 
@@ -463,24 +545,188 @@ function renderOverlay(status: string): void {
   overlayElement.hidden = true;
 }
 
-function getCellClassName(value: number, selected: boolean): string {
-  const classes = ["cell"];
+function getTileClassName(tile: RenderTile, selected: boolean): string {
+  const classes = ["tile", `tile-${tile.value}`];
 
-  if (value === 0) {
-    classes.push("is-empty");
-  } else {
-    classes.push("tile", `tile-${value}`);
+  if (tile.value >= 1024) {
+    classes.push("is-small-text");
   }
 
-  if (value >= 1024) {
-    classes.push("is-small-text");
+  if (tile.value > 2048) {
+    classes.push("tile-super");
   }
 
   if (selected) {
     classes.push("is-selected");
   }
 
+  if (tile.isNew) {
+    classes.push("is-new");
+  }
+
+  if (tile.isMerged) {
+    classes.push("is-merged");
+  }
+
   return classes.join(" ");
+}
+
+function createRenderTiles(board: Board, markNew = false): RenderTile[] {
+  const tiles: RenderTile[] = [];
+
+  board.forEach((row, rowIndex) => {
+    row.forEach((value, colIndex) => {
+      if (value === 0) {
+        return;
+      }
+
+      tiles.push({
+        id: nextTileId,
+        value,
+        row: rowIndex,
+        col: colIndex,
+        isNew: markNew,
+        isMerged: false,
+      });
+      nextTileId += 1;
+    });
+  });
+
+  return tiles;
+}
+
+function moveRenderTiles(tiles: RenderTile[], direction: Direction): RenderTile[] {
+  const movedTiles: RenderTile[] = [];
+
+  for (let lineIndex = 0; lineIndex < GRID_SIZE; lineIndex += 1) {
+    const lineTiles = getLineTiles(tiles, direction, lineIndex);
+    let outputIndex = 0;
+
+    for (let index = 0; index < lineTiles.length; index += 1) {
+      const current = lineTiles[index];
+      const next = lineTiles[index + 1];
+
+      if (next && current.value === next.value) {
+        movedTiles.push({
+          ...getTargetTile(next, direction, lineIndex, outputIndex),
+          value: current.value * 2,
+          isNew: false,
+          isMerged: true,
+        });
+        index += 1;
+      } else {
+        movedTiles.push({
+          ...getTargetTile(current, direction, lineIndex, outputIndex),
+          isNew: false,
+          isMerged: false,
+        });
+      }
+
+      outputIndex += 1;
+    }
+  }
+
+  return movedTiles;
+}
+
+function getLineTiles(
+  tiles: RenderTile[],
+  direction: Direction,
+  lineIndex: number,
+): RenderTile[] {
+  const lineTiles = tiles.filter((tile) =>
+    direction === "left" || direction === "right"
+      ? tile.row === lineIndex
+      : tile.col === lineIndex,
+  );
+
+  return lineTiles.sort((first, second) => {
+    if (direction === "left") {
+      return first.col - second.col;
+    }
+
+    if (direction === "right") {
+      return second.col - first.col;
+    }
+
+    if (direction === "up") {
+      return first.row - second.row;
+    }
+
+    return second.row - first.row;
+  });
+}
+
+function getTargetTile(
+  tile: RenderTile,
+  direction: Direction,
+  lineIndex: number,
+  outputIndex: number,
+): RenderTile {
+  if (direction === "left") {
+    return { ...tile, row: lineIndex, col: outputIndex };
+  }
+
+  if (direction === "right") {
+    return { ...tile, row: lineIndex, col: GRID_SIZE - 1 - outputIndex };
+  }
+
+  if (direction === "up") {
+    return { ...tile, row: outputIndex, col: lineIndex };
+  }
+
+  return { ...tile, row: GRID_SIZE - 1 - outputIndex, col: lineIndex };
+}
+
+function swapRenderTiles(
+  tiles: RenderTile[],
+  first: Position,
+  second: Position,
+): RenderTile[] {
+  return tiles.map((tile) => {
+    if (positionsEqual(tile, first)) {
+      return { ...tile, row: second.row, col: second.col, isNew: false, isMerged: false };
+    }
+
+    if (positionsEqual(tile, second)) {
+      return { ...tile, row: first.row, col: first.col, isNew: false, isMerged: false };
+    }
+
+    return { ...tile, isNew: false, isMerged: false };
+  });
+}
+
+function syncTileMetrics(): void {
+  const styles = getComputedStyle(tileLayerElement);
+  const gap = Number.parseFloat(styles.getPropertyValue("--board-gap")) || 15;
+  const width = tileLayerElement.clientWidth;
+  const size = Math.max((width - gap * (GRID_SIZE - 1)) / GRID_SIZE, 0);
+
+  tileMetrics = { size, gap };
+  tileLayerElement.style.setProperty("--tile-size", `${size}px`);
+}
+
+function applyTilePosition(element: HTMLElement, tile: RenderTile): void {
+  const x = tile.col * (tileMetrics.size + tileMetrics.gap);
+  const y = tile.row * (tileMetrics.size + tileMetrics.gap);
+
+  element.style.transform = `translate(${x}px, ${y}px)`;
+}
+
+function scheduleAnimationCleanup(): void {
+  if (!state.tiles.some((tile) => tile.isNew || tile.isMerged)) {
+    return;
+  }
+
+  window.clearTimeout(animationCleanupTimer);
+  animationCleanupTimer = window.setTimeout(() => {
+    state.tiles = state.tiles.map((tile) => ({
+      ...tile,
+      isNew: false,
+      isMerged: false,
+    }));
+    renderTiles();
+  }, ANIMATION_RESET_MS);
 }
 
 function readBestScore(): number {
