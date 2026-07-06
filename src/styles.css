@@ -453,9 +453,10 @@ h1 {
   width: max-content;
   max-width: calc(100% - 20px);
   display: flex;
+  align-items: flex-start;
   gap: 12px;
   margin: 24px auto 0;
-  padding: 12px;
+  padding: 12px 12px 8px;
   border-radius: 22px;
   background: rgba(234, 231, 217, 0.82);
   box-shadow:
@@ -464,39 +465,95 @@ h1 {
 }
 
 .helper-dock .tool-button {
+  position: relative;
   width: 48px;
   min-width: 48px;
-  height: 48px;
-  min-height: 48px;
-  padding: 0;
+  height: 60px;
+  min-height: 60px;
+  align-items: flex-start;
+  padding: 8px 0 12px;
   border-radius: 10px;
-  background: rgba(186, 172, 154, 0.3);
+  background: transparent;
   color: #ffffff;
   box-shadow: none;
 }
 
-.helper-dock .tool-button:hover:not(:disabled),
-.helper-dock .tool-button.is-active:not(:disabled) {
+.helper-dock .tool-button::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  background: rgba(186, 172, 154, 0.3);
+  transition:
+    background 75ms ease,
+    opacity 75ms ease;
+}
+
+.helper-dock .tool-button:hover:not(:disabled) {
+  background: transparent;
+}
+
+.helper-dock .tool-button.is-active:not(.danger),
+.helper-dock .tool-button.danger:hover:not(:disabled),
+.helper-dock .tool-button.danger.is-active {
+  background: transparent;
+  color: #ffffff;
+}
+
+.helper-dock .tool-button:hover:not(:disabled)::before,
+.helper-dock .tool-button.is-active:not(:disabled)::before {
   background: rgba(186, 172, 154, 0.58);
 }
 
 .helper-dock .tool-button:disabled {
+  opacity: 1;
+}
+
+.helper-dock .tool-button:disabled::before,
+.helper-dock .tool-button:disabled svg {
   opacity: 0.42;
 }
 
 .helper-dock .tool-button svg {
+  position: relative;
+  z-index: 1;
   width: 32px;
   height: 32px;
   stroke-width: 2.6;
 }
 
-.helper-dock .tool-button span {
+.helper-dock .helper-label {
   position: absolute;
   width: 1px;
   height: 1px;
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+
+.charge-meter {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  z-index: 1;
+  display: flex;
+  gap: 4px;
+  transform: translateX(-50%);
+}
+
+.charge-pip {
+  width: 14px;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(186, 172, 154, 0.28);
+}
+
+.charge-pip.is-filled {
+  background: #a99786;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 
 .status-line {

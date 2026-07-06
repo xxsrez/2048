@@ -18,7 +18,10 @@ import {
   swapTiles,
 } from "./game";
 
-type HelperMode = "move" | "swap" | "delete";
+type BoardHelperMode = "swap" | "delete";
+type HelperAction = "undo" | BoardHelperMode;
+type HelperMode = "move" | BoardHelperMode;
+type HelperCharges = Record<HelperAction, number>;
 
 interface Snapshot {
   board: Board;
@@ -41,6 +44,7 @@ interface RuntimeState {
   tiles: RenderTile[];
   score: number;
   bestScore: number;
+  helperCharges: HelperCharges;
   keepPlaying: boolean;
   history: Snapshot[];
   mode: HelperMode;
@@ -55,6 +59,7 @@ interface PersistedGame {
   board: Board;
   score: number;
   bestScore: number;
+  helperCharges: HelperCharges;
   keepPlaying: boolean;
   history: Snapshot[];
 }
@@ -68,9 +73,21 @@ const BEST_SCORE_KEY = "local-2048-best-score";
 const GAME_STATE_KEY = "local-2048-game-state";
 const HISTORY_LIMIT = 100;
 const MAX_QUEUED_MOVES = 8;
+const HELPER_MAX_CHARGES = 2;
 const MOVE_SETTLE_MS = 120;
 const ANIMATION_RESET_MS = 260;
 const SWIPE_THRESHOLD = 36;
+const HELPER_ACTIONS: HelperAction[] = ["undo", "swap", "delete"];
+const HELPER_LABELS: Record<HelperAction, string> = {
+  undo: "Undo",
+  swap: "Swap 2",
+  delete: "Delete tile",
+};
+const HELPER_REWARD_BY_TILE = new Map<number, HelperAction>([
+  [128, "undo"],
+  [256, "swap"],
+  [512, "delete"],
+]);
 
 const app = document.querySelector<HTMLDivElement>("#app");
 
@@ -129,15 +146,27 @@ app.innerHTML = `
       <nav class="helper-dock" aria-label="Helper controls">
         <button class="tool-button" id="undo" type="button" title="Undo" aria-label="Undo">
           <i data-lucide="undo-2"></i>
-          <span>Undo</span>
+          <span class="helper-label">Undo</span>
+          <span class="charge-meter" id="undo-charge-meter" aria-hidden="true">
+            <span class="charge-pip"></span>
+            <span class="charge-pip"></span>
+          </span>
         </button>
         <button class="tool-button" id="swap" type="button" title="Swap 2" aria-label="Swap 2" aria-pressed="false">
           <i data-lucide="arrow-left-right"></i>
-          <span>Swap 2</span>
+          <span class="helper-label">Swap 2</span>
+          <span class="charge-meter" id="swap-charge-meter" aria-hidden="true">
+            <span class="charge-pip"></span>
+            <span class="charge-pip"></span>
+          </span>
         </button>
         <button class="tool-button danger" id="delete" type="button" title="Delete tile" aria-label="Delete tile" aria-pressed="false">
           <i data-lucide="eraser"></i>
-          <span>Delete</span>
+          <span class="helper-label">Delete</span>
+          <span class="charge-meter" id="delete-charge-meter" aria-hidden="true">
+            <span class="charge-pip"></span>
+            <span class="charge-pip"></span>
+          </span>
         </button>
       </nav>
 
@@ -181,6 +210,16 @@ const keepGoingButton = getElement<HTMLButtonElement>("keep-going");
 const undoButton = getElement<HTMLButtonElement>("undo");
 const swapButton = getElement<HTMLButtonElement>("swap");
 const deleteButton = getElement<HTMLButtonElement>("delete");
+const helperButtons: Record<HelperAction, HTMLButtonElement> = {
+  undo: undoButton,
+  swap: swapButton,
+  delete: deleteButton,
+};
+const helperChargeMeters: Record<HelperAction, HTMLElement> = {
+  undo: getElement<HTMLElement>("undo-charge-meter"),
+  swap: getElement<HTMLElement>("swap-charge-meter"),
+  delete: getElement<HTMLElement>("delete-charge-meter"),
+};
 
 let pointerStart: { x: number; y: number } | null = null;
 let queuedMoves: Direction[] = [];
@@ -205,6 +244,7 @@ const state: RuntimeState = {
   tiles: createRenderTiles(initialBoard, !savedGame),
   score: savedGame?.score ?? 0,
   bestScore: initialBestScore,
+  helperCharges: savedGame?.helperCharges ?? createEmptyHelperCharges(),
   keepPlaying: savedGame?.keepPlaying ?? false,
   history: savedGame?.history ?? [],
   mode: "move",
@@ -328,6 +368,7 @@ function startNewGame(): void {
   state.board = createInitialBoard();
   state.tiles = createRenderTiles(state.board, true);
   state.score = 0;
+  state.helperCharges = createEmptyHelperCharges();
   state.keepPlaying = false;
   state.history = [];
   state.mode = "move";
@@ -357,6 +398,13 @@ function undo(): void {
 
   clearAnimationTimers();
   queuedMoves = [];
+
+  if (state.helperCharges.undo <= 0) {
+    state.message = "No undo uses";
+    render();
+    return;
+  }
+
   const previous = state.history.pop();
 
   if (!previous) {
@@ -369,6 +417,7 @@ function undo(): void {
   state.tiles = createRenderTiles(state.board);
   state.score = previous.score;
   state.keepPlaying = previous.keepPlaying;
+  consumeHelperCharge("undo");
   state.mode = "move";
   state.selection = [];
   state.lastGain = 0;
@@ -377,12 +426,20 @@ function undo(): void {
   boardElement.focus();
 }
 
-function toggleMode(mode: Exclude<HelperMode, "move">): void {
+function toggleMode(mode: BoardHelperMode): void {
   if (state.isAnimating) {
     return;
   }
 
   if (getGameStatus(state.board, state.keepPlaying) !== "playing") {
+    return;
+  }
+
+  if (state.helperCharges[mode] <= 0) {
+    state.mode = "move";
+    state.selection = [];
+    state.message = `No ${HELPER_LABELS[mode]} uses`;
+    render();
     return;
   }
 
@@ -413,6 +470,14 @@ function handleCellClick(position: Position): void {
     return;
   }
 
+  if (state.helperCharges[state.mode] <= 0) {
+    state.mode = "move";
+    state.selection = [];
+    state.message = "No helper uses";
+    render();
+    return;
+  }
+
   if (!isOccupied(state.board, position)) {
     state.message = "Empty tile";
     render();
@@ -425,6 +490,7 @@ function handleCellClick(position: Position): void {
     state.tiles = state.tiles.filter(
       (tile) => tile.row !== position.row || tile.col !== position.col,
     );
+    consumeHelperCharge("delete");
     state.keepPlaying = state.keepPlaying && getLargestTile(state.board) >= 2048;
     state.mode = "move";
     state.selection = [];
@@ -453,6 +519,7 @@ function handleCellClick(position: Position): void {
   pushHistory();
   state.board = swapTiles(state.board, selectedPosition, position);
   state.tiles = swapRenderTiles(state.tiles, selectedPosition, position);
+  consumeHelperCharge("swap");
   state.mode = "move";
   state.selection = [];
   state.lastGain = 0;
@@ -489,6 +556,7 @@ function move(direction: Direction): void {
   pushHistory();
   const spawn = spawnTileWithPosition(result.board);
   const moveAnimation = createMoveAnimation(state.tiles, direction, spawn);
+  awardHelperCharges(moveAnimation.settledTiles);
   state.board = spawn.board;
   state.tiles = moveAnimation.displayTiles;
   state.isAnimating = true;
@@ -554,13 +622,23 @@ function render(): void {
   statusLineElement.textContent = state.message;
   boardElement.dataset.mode = state.mode;
 
-  undoButton.disabled = state.history.length === 0 || state.isAnimating;
-  swapButton.disabled = state.isAnimating || status !== "playing" || occupiedCells < 2;
-  deleteButton.disabled = state.isAnimating || status !== "playing" || occupiedCells === 0;
+  undoButton.disabled =
+    state.helperCharges.undo === 0 || state.history.length === 0 || state.isAnimating;
+  swapButton.disabled =
+    state.helperCharges.swap === 0 ||
+    state.isAnimating ||
+    status !== "playing" ||
+    occupiedCells < 2;
+  deleteButton.disabled =
+    state.helperCharges.delete === 0 ||
+    state.isAnimating ||
+    status !== "playing" ||
+    occupiedCells === 0;
   swapButton.classList.toggle("is-active", state.mode === "swap");
   deleteButton.classList.toggle("is-active", state.mode === "delete");
   swapButton.setAttribute("aria-pressed", String(state.mode === "swap"));
   deleteButton.setAttribute("aria-pressed", String(state.mode === "delete"));
+  renderHelperCharges();
 
   renderTiles();
   renderOverlay(status);
@@ -693,6 +771,57 @@ function createRenderTiles(board: Board, markNew = false): RenderTile[] {
   });
 
   return tiles;
+}
+
+function createEmptyHelperCharges(): HelperCharges {
+  return {
+    undo: 0,
+    swap: 0,
+    delete: 0,
+  };
+}
+
+function awardHelperCharges(tiles: RenderTile[]): void {
+  tiles.forEach((tile) => {
+    if (!tile.isMerged) {
+      return;
+    }
+
+    const action = HELPER_REWARD_BY_TILE.get(tile.value);
+
+    if (!action) {
+      return;
+    }
+
+    state.helperCharges[action] = Math.min(
+      state.helperCharges[action] + 1,
+      HELPER_MAX_CHARGES,
+    );
+  });
+}
+
+function consumeHelperCharge(action: HelperAction): void {
+  state.helperCharges[action] = Math.max(state.helperCharges[action] - 1, 0);
+}
+
+function renderHelperCharges(): void {
+  HELPER_ACTIONS.forEach((action) => {
+    const button = helperButtons[action];
+    const count = state.helperCharges[action];
+
+    button.dataset.charges = String(count);
+    button.title = `${HELPER_LABELS[action]}: ${count}/${HELPER_MAX_CHARGES}`;
+    button.setAttribute(
+      "aria-label",
+      `${HELPER_LABELS[action]} (${count}/${HELPER_MAX_CHARGES})`,
+    );
+
+    helperChargeMeters[action]
+      .querySelectorAll<HTMLElement>(".charge-pip")
+      .forEach((pip, index) => {
+        pip.classList.toggle("is-filled", index < count);
+      });
+  });
 }
 
 function createMoveAnimation(
@@ -925,6 +1054,7 @@ function persistGameState(): void {
     board: cloneBoard(state.board),
     score: state.score,
     bestScore: state.bestScore,
+    helperCharges: { ...state.helperCharges },
     keepPlaying: state.keepPlaying,
     history: state.history.map((item) => ({
       board: cloneBoard(item.board),
@@ -965,10 +1095,12 @@ function parsePersistedGame(value: unknown): PersistedGame | null {
   const history = parseHistory(value.history);
   const score = parseNonNegativeInteger(value.score);
   const bestScore = parseNonNegativeInteger(value.bestScore);
+  const helperCharges = parseHelperCharges(value.helperCharges);
 
   if (
     !board ||
     !history ||
+    !helperCharges ||
     score === null ||
     bestScore === null ||
     typeof value.keepPlaying !== "boolean"
@@ -981,9 +1113,34 @@ function parsePersistedGame(value: unknown): PersistedGame | null {
     board,
     score,
     bestScore,
+    helperCharges,
     keepPlaying: value.keepPlaying,
     history,
   };
+}
+
+function parseHelperCharges(value: unknown): HelperCharges | null {
+  if (value === undefined) {
+    return createEmptyHelperCharges();
+  }
+
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const charges = createEmptyHelperCharges();
+
+  for (const action of HELPER_ACTIONS) {
+    const parsedCharge = parseNonNegativeInteger(value[action]);
+
+    if (parsedCharge === null) {
+      return null;
+    }
+
+    charges[action] = Math.min(parsedCharge, HELPER_MAX_CHARGES);
+  }
+
+  return charges;
 }
 
 function parseHistory(value: unknown): Snapshot[] | null {

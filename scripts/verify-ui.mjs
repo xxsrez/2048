@@ -40,15 +40,28 @@ try {
     throw new Error(`Expected 2 initial tiles, got ${initialTiles}`);
   }
 
-  await page.getByRole("button", { name: "Delete tile" }).click();
-  await page.locator(".tile").first().click();
+  await expectHelperCounts(page, { undo: 0, swap: 0, delete: 0 });
 
-  const tilesAfterDelete = await page.locator(".tile").count();
-  if (tilesAfterDelete !== 1) {
-    throw new Error(`Unexpected tile count after helper flow: ${tilesAfterDelete}`);
+  for (const helperId of ["undo", "swap", "delete"]) {
+    if (!(await page.locator(`#${helperId}`).isDisabled())) {
+      throw new Error(`Expected #${helperId} to start disabled with zero charges.`);
+    }
   }
 
+  await setSavedGame(page, {
+    board: [
+      [64, 64, 64, 64],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+    ],
+  });
+  await page.keyboard.press("ArrowLeft");
+  await page.waitForTimeout(200);
+  await expectHelperCounts(page, { undo: 2, swap: 0, delete: 0 });
+
   const persistedTiles = await collectTiles(page);
+  const persistedCounts = await collectHelperCounts(page);
   await page.reload({ waitUntil: "networkidle" });
   await page.getByRole("heading", { name: "2048" }).waitFor();
 
@@ -57,20 +70,60 @@ try {
     throw new Error("Reload did not restore the saved board.");
   }
 
-  const undoDisabled = await page.getByRole("button", { name: "Undo" }).isDisabled();
+  const restoredCounts = await collectHelperCounts(page);
+  if (JSON.stringify(restoredCounts) !== JSON.stringify(persistedCounts)) {
+    throw new Error("Reload did not restore helper charges.");
+  }
+
+  const undoDisabled = await page.locator("#undo").isDisabled();
   if (undoDisabled) {
-    throw new Error("Reload did not restore undo history.");
+    throw new Error("Reload did not restore charged undo availability.");
   }
 
-  await page.getByRole("button", { name: "Undo" }).click();
-  const tilesAfterUndo = await page.locator(".tile").count();
-  if (tilesAfterUndo !== 2) {
-    throw new Error(`Expected undo to restore 2 tiles, got ${tilesAfterUndo}`);
+  await page.locator("#undo").click();
+  await expectHelperCounts(page, { undo: 1, swap: 0, delete: 0 });
+  const tilesAfterUndo = await collectTiles(page);
+  const restoredSixtyFours = tilesAfterUndo.filter((tile) => tile.value === "64").length;
+  if (restoredSixtyFours !== 4) {
+    throw new Error(`Expected undo to restore four 64 tiles, got ${JSON.stringify(tilesAfterUndo)}`);
   }
 
-  await page.getByRole("button", { name: "Swap 2" }).click();
+  await setSavedGame(page, {
+    board: [
+      [128, 128, 2, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+    ],
+  });
+  await page.keyboard.press("ArrowLeft");
+  await page.waitForTimeout(200);
+  await expectHelperCounts(page, { undo: 0, swap: 1, delete: 0 });
+  await page.locator("#swap").click();
   await page.locator(".tile").nth(0).click();
   await page.locator(".tile").nth(1).click();
+  await expectHelperCounts(page, { undo: 0, swap: 0, delete: 0 });
+
+  await setSavedGame(page, {
+    board: [
+      [256, 256, 2, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+    ],
+  });
+  await page.keyboard.press("ArrowLeft");
+  await page.waitForTimeout(200);
+  await expectHelperCounts(page, { undo: 0, swap: 0, delete: 1 });
+  const tilesBeforeDelete = await page.locator(".tile").count();
+  await page.locator("#delete").click();
+  await page.locator(".tile").first().click();
+  await expectHelperCounts(page, { undo: 0, swap: 0, delete: 0 });
+
+  const tilesAfterDelete = await page.locator(".tile").count();
+  if (tilesAfterDelete !== tilesBeforeDelete - 1) {
+    throw new Error(`Unexpected tile count after charged delete flow: ${tilesAfterDelete}`);
+  }
 
   await page.evaluate(() => {
     window.localStorage.setItem(
@@ -85,6 +138,7 @@ try {
         ],
         score: 0,
         bestScore: 0,
+        helperCharges: { undo: 0, swap: 0, delete: 0 },
         keepPlaying: false,
         history: [],
       }),
@@ -123,6 +177,7 @@ try {
         ],
         score: 0,
         bestScore: 0,
+        helperCharges: { undo: 0, swap: 0, delete: 0 },
         keepPlaying: false,
         history: [],
       }),
@@ -179,6 +234,61 @@ async function collectTiles(page) {
         ),
       ),
   );
+}
+
+async function setSavedGame(page, game) {
+  await page.evaluate((nextGame) => {
+    window.localStorage.setItem("__test_random_values", JSON.stringify([0, 0, 0, 0]));
+    window.localStorage.setItem(
+      "local-2048-game-state",
+      JSON.stringify({
+        version: 1,
+        board: [
+          [0, 0, 0, 0],
+          [0, 0, 0, 0],
+          [0, 0, 0, 0],
+          [0, 0, 0, 0],
+        ],
+        score: 0,
+        bestScore: 0,
+        helperCharges: { undo: 0, swap: 0, delete: 0 },
+        keepPlaying: false,
+        history: [],
+        ...nextGame,
+      }),
+    );
+  }, game);
+
+  await page.reload({ waitUntil: "networkidle" });
+  await page.getByRole("heading", { name: "2048" }).waitFor();
+}
+
+async function collectHelperCounts(page) {
+  return page.locator(".helper-dock .tool-button").evaluateAll((buttons) =>
+    Object.fromEntries(
+      buttons.map((button) => [
+        button.id,
+        Number(button.getAttribute("data-charges") ?? "0"),
+      ]),
+    ),
+  );
+}
+
+async function expectHelperCounts(page, expected) {
+  const counts = await collectHelperCounts(page);
+
+  for (const [helper, count] of Object.entries(expected)) {
+    if (counts[helper] !== count) {
+      throw new Error(
+        `Expected ${helper} charges to be ${count}, got ${counts[helper]} in ${JSON.stringify(counts)}`,
+      );
+    }
+
+    const visiblePips = await page.locator(`#${helper} .charge-pip.is-filled`).count();
+    if (visiblePips !== count) {
+      throw new Error(`Expected ${helper} to show ${count} filled charge pips, got ${visiblePips}`);
+    }
+  }
 }
 
 async function assertFavicon(page) {

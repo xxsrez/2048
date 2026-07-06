@@ -19,9 +19,9 @@ The dev server is configured for `http://127.0.0.1:5173`.
 - Move with arrow keys, WASD, or touch swipes.
 - Equal tiles merge once per move and add their merged value to the score.
 - A new 2 or 4 tile appears after each valid move.
-- Undo restores the previous board and score.
-- Swap 2 lets you choose two occupied cells and swap their values.
-- Delete removes one occupied tile.
+- Helpers start with zero uses and can hold up to two uses each.
+- Making a 128 tile adds one Undo use, making 256 adds one Swap 2 use, and making 512 adds one Delete use.
+- Undo restores the previous board and score, Swap 2 swaps two occupied cells, and Delete removes one occupied tile.
 
 ## Documentation
 

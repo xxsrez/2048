@@ -14,14 +14,17 @@ This project implements the basic 2048 mode on a 4x4 grid:
 
 ## Helpers
 
-The helpers are intentionally direct and do not spawn new tiles:
+The helpers are intentionally direct and do not spawn new tiles. They start with zero uses, each helper can hold up to two uses, and valid merges refill them:
 
-- Undo restores the previous board, score, and win/continue state.
-- Swap 2 enters a selection mode, then swaps two occupied cells.
-- Delete enters a selection mode, then clears one occupied cell.
+- Making a 128 tile adds one Undo use.
+- Making a 256 tile adds one Swap 2 use.
+- Making a 512 tile adds one Delete use.
+- Undo restores the previous board, score, and win/continue state, then spends one Undo use.
+- Swap 2 enters a selection mode, then swaps two occupied cells and spends one Swap 2 use.
+- Delete enters a selection mode, then clears one occupied cell and spends one Delete use.
 
 Helpers save history first, so they can be undone.
 
 ## Persistence
 
-The current board, score, keep-playing state, and undo history are saved in `localStorage`. Refreshing the page restores the in-progress game. New Game starts a fresh saved game.
+The current board, score, helper uses, keep-playing state, and undo history are saved in `localStorage`. Refreshing the page restores the in-progress game. New Game starts a fresh saved game with zero helper uses.
