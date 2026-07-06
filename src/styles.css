@@ -449,6 +449,10 @@ h1 {
   gap: 10px;
 }
 
+.result-actions .tool-button[hidden] {
+  display: none;
+}
+
 .helper-dock {
   width: max-content;
   max-width: calc(100% - 20px);

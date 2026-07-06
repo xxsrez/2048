@@ -132,6 +132,10 @@ app.innerHTML = `
                 <i data-lucide="play"></i>
                 <span>Keep</span>
               </button>
+              <button class="tool-button primary" id="overlay-undo" type="button">
+                <i data-lucide="undo-2"></i>
+                <span>Undo</span>
+              </button>
               <button class="tool-button" id="restart" type="button">
                 <i data-lucide="rotate-ccw"></i>
                 <span>Restart</span>
@@ -205,6 +209,7 @@ const resultTitleElement = getElement<HTMLElement>("result-title");
 const newGameButton = getElement<HTMLButtonElement>("new-game");
 const restartButton = getElement<HTMLButtonElement>("restart");
 const keepGoingButton = getElement<HTMLButtonElement>("keep-going");
+const overlayUndoButton = getElement<HTMLButtonElement>("overlay-undo");
 const undoButton = getElement<HTMLButtonElement>("undo");
 const swapButton = getElement<HTMLButtonElement>("swap");
 const deleteButton = getElement<HTMLButtonElement>("delete");
@@ -259,6 +264,7 @@ render();
 newGameButton.addEventListener("click", startNewGame);
 restartButton.addEventListener("click", startNewGame);
 keepGoingButton.addEventListener("click", keepGoing);
+overlayUndoButton.addEventListener("click", undo);
 undoButton.addEventListener("click", undo);
 swapButton.addEventListener("click", () => toggleMode("swap"));
 deleteButton.addEventListener("click", () => toggleMode("delete"));
@@ -625,8 +631,9 @@ function render(): void {
   statusLineElement.textContent = state.message;
   boardElement.dataset.mode = state.mode;
 
-  undoButton.disabled =
-    state.helperCharges.undo === 0 || state.history.length === 0 || state.isAnimating;
+  const undoUnavailable = !canUndo();
+
+  undoButton.disabled = undoUnavailable;
   swapButton.disabled =
     state.helperCharges.swap === 0 ||
     state.isAnimating ||
@@ -707,6 +714,7 @@ function renderOverlay(status: string): void {
     resultKickerElement.textContent = "Reached";
     resultTitleElement.textContent = "2048";
     keepGoingButton.hidden = false;
+    overlayUndoButton.hidden = true;
     return;
   }
 
@@ -715,10 +723,20 @@ function renderOverlay(status: string): void {
     resultKickerElement.textContent = "No moves";
     resultTitleElement.textContent = "Game over";
     keepGoingButton.hidden = true;
+    overlayUndoButton.hidden = false;
+    overlayUndoButton.disabled = !canUndo();
     return;
   }
 
   overlayElement.hidden = true;
+}
+
+function canUndo(): boolean {
+  return (
+    state.helperCharges.undo > 0 &&
+    state.history.length > 0 &&
+    !state.isAnimating
+  );
 }
 
 function getTileClassName(tile: RenderTile, selected: boolean): string {

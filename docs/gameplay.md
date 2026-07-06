@@ -11,6 +11,7 @@ This project implements the basic 2048 mode on a 4x4 grid:
 - A new tile appears only after a move changes the board.
 - Reaching 2048 shows a win state, and the player can continue.
 - A full board with no adjacent matches is game over.
+- Game over shows Undo and Restart actions. Undo is disabled when no Undo use is available; Restart always remains available.
 
 ## Helpers
 

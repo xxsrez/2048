@@ -166,6 +166,64 @@ try {
     throw new Error(`Unexpected tile count after charged delete flow: ${tilesAfterDelete}`);
   }
 
+  await setSavedGame(page, {
+    board: [
+      [2, 4, 2, 4],
+      [4, 2, 4, 2],
+      [2, 4, 2, 4],
+      [4, 2, 4, 2],
+    ],
+    history: [
+      {
+        board: [
+          [2, 4, 2, 0],
+          [4, 2, 4, 2],
+          [2, 4, 2, 4],
+          [4, 2, 4, 2],
+        ],
+        score: 0,
+        keepPlaying: false,
+      },
+    ],
+  });
+  await expectGameOverActions(page, { undoDisabled: true });
+
+  await setSavedGame(page, {
+    board: [
+      [2, 4, 2, 4],
+      [4, 2, 4, 2],
+      [2, 4, 2, 4],
+      [4, 2, 4, 2],
+    ],
+    helperCharges: { undo: 1, swap: 0, delete: 0 },
+    history: [
+      {
+        board: [
+          [2, 4, 2, 0],
+          [4, 2, 4, 2],
+          [2, 4, 2, 4],
+          [4, 2, 4, 2],
+        ],
+        score: 0,
+        keepPlaying: false,
+      },
+    ],
+  });
+  await expectGameOverActions(page, { undoDisabled: false });
+  await page.locator("#overlay-undo").click();
+  await expectHelperCounts(page, { undo: 0, swap: 0, delete: 0 });
+
+  if (!(await page.locator("#result-overlay").isHidden())) {
+    throw new Error("Expected game-over overlay to close after charged undo.");
+  }
+
+  const restoredAfterGameOverUndo = await collectTiles(page);
+  if (restoredAfterGameOverUndo.length !== 15) {
+    throw new Error(
+      `Expected overlay undo to restore the previous board, got ${JSON.stringify(restoredAfterGameOverUndo)}`,
+    );
+  }
+
   await page.evaluate(() => {
     window.localStorage.setItem(
       "local-2048-game-state",
@@ -327,6 +385,38 @@ async function readMirroredHelperCounts(page) {
     const stored = window.localStorage.getItem("local-2048-helper-charges");
     return stored ? JSON.parse(stored) : null;
   });
+}
+
+async function expectGameOverActions(page, { undoDisabled }) {
+  await page.locator("#result-overlay").waitFor({ state: "visible" });
+
+  const title = await page.locator("#result-title").textContent();
+  if (title?.trim() !== "Game over") {
+    throw new Error(`Expected Game over overlay, got ${title}`);
+  }
+
+  if (await page.locator("#keep-going").isVisible()) {
+    throw new Error("Keep button should not be visible on game over.");
+  }
+
+  if (!(await page.locator("#overlay-undo").isVisible())) {
+    throw new Error("Overlay Undo button should be visible on game over.");
+  }
+
+  if (!(await page.locator("#restart").isVisible())) {
+    throw new Error("Restart button should be visible on game over.");
+  }
+
+  const actualUndoDisabled = await page.locator("#overlay-undo").isDisabled();
+  if (actualUndoDisabled !== undoDisabled) {
+    throw new Error(
+      `Expected overlay Undo disabled=${undoDisabled}, got ${actualUndoDisabled}`,
+    );
+  }
+
+  if (await page.locator("#restart").isDisabled()) {
+    throw new Error("Restart should remain available on game over.");
+  }
 }
 
 async function expectHelperCounts(page, expected) {
