@@ -66,6 +66,7 @@ interface MoveAnimation {
 const BEST_SCORE_KEY = "local-2048-best-score";
 const GAME_STATE_KEY = "local-2048-game-state";
 const HISTORY_LIMIT = 100;
+const MAX_QUEUED_MOVES = 8;
 const MOVE_SETTLE_MS = 120;
 const ANIMATION_RESET_MS = 260;
 const SWIPE_THRESHOLD = 36;
@@ -180,6 +181,7 @@ const swapButton = getElement<HTMLButtonElement>("swap");
 const deleteButton = getElement<HTMLButtonElement>("delete");
 
 let pointerStart: { x: number; y: number } | null = null;
+let queuedMoves: Direction[] = [];
 let nextTileId = 1;
 let moveAnimationTimer: number | undefined;
 let animationCleanupTimer: number | undefined;
@@ -256,7 +258,7 @@ boardElement.addEventListener("pointerup", (event) => {
     return;
   }
 
-  move(
+  requestMove(
     Math.abs(diffX) > Math.abs(diffY)
       ? diffX > 0
         ? "right"
@@ -289,7 +291,7 @@ window.addEventListener("keydown", (event) => {
   }
 
   event.preventDefault();
-  move(direction);
+  requestMove(direction);
 });
 
 function getElement<T extends HTMLElement>(id: string): T {
@@ -320,6 +322,7 @@ function pushHistory(): void {
 
 function startNewGame(): void {
   clearAnimationTimers();
+  queuedMoves = [];
   state.board = createInitialBoard();
   state.tiles = createRenderTiles(state.board, true);
   state.score = 0;
@@ -351,6 +354,7 @@ function undo(): void {
   }
 
   clearAnimationTimers();
+  queuedMoves = [];
   const previous = state.history.pop();
 
   if (!previous) {
@@ -391,6 +395,7 @@ function toggleMode(mode: Exclude<HelperMode, "move">): void {
   }
 
   state.lastGain = 0;
+  queuedMoves = [];
   render();
   boardElement.focus();
 }
@@ -455,6 +460,7 @@ function handleCellClick(position: Position): void {
 
 function move(direction: Direction): void {
   if (state.isAnimating) {
+    queueMove(direction);
     return;
   }
 
@@ -508,7 +514,43 @@ function move(direction: Direction): void {
 
     state.isAnimating = false;
     render();
+    playQueuedMove();
   }, MOVE_SETTLE_MS);
+}
+
+function requestMove(direction: Direction): void {
+  if (state.isAnimating) {
+    queueMove(direction);
+    return;
+  }
+
+  move(direction);
+}
+
+function queueMove(direction: Direction): void {
+  if (queuedMoves.length >= MAX_QUEUED_MOVES) {
+    queuedMoves.shift();
+  }
+
+  queuedMoves.push(direction);
+}
+
+function playQueuedMove(): void {
+  if (state.isAnimating) {
+    return;
+  }
+
+  const direction = queuedMoves.shift();
+
+  if (!direction) {
+    return;
+  }
+
+  move(direction);
+
+  if (!state.isAnimating && queuedMoves.length > 0) {
+    window.setTimeout(playQueuedMove, 0);
+  }
 }
 
 function render(): void {

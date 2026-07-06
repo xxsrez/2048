@@ -7,6 +7,26 @@ const mobileScreenshotPath = "test-results/2048-mobile.png";
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+await page.addInitScript(() => {
+  const originalRandom = Math.random;
+
+  Math.random = () => {
+    try {
+      const rawValues = window.localStorage.getItem("__test_random_values");
+      const values = rawValues ? JSON.parse(rawValues) : [];
+
+      if (Array.isArray(values) && values.length > 0) {
+        const value = Number(values.shift());
+        window.localStorage.setItem("__test_random_values", JSON.stringify(values));
+        return value;
+      }
+    } catch {
+      // Fall through to browser randomness.
+    }
+
+    return originalRandom();
+  };
+});
 
 try {
   await page.goto(url, { waitUntil: "networkidle" });
@@ -87,6 +107,42 @@ try {
   const settledTexts = await page.locator(".tile").allTextContents();
   if (!settledTexts.some((text) => text.trim() === "4")) {
     throw new Error(`Expected merged tile after settle, got ${settledTexts.join(", ")}`);
+  }
+
+  await page.evaluate(() => {
+    window.localStorage.setItem("__test_random_values", JSON.stringify([0, 0, 0, 0]));
+    window.localStorage.setItem(
+      "local-2048-game-state",
+      JSON.stringify({
+        version: 1,
+        board: [
+          [2, 0, 0, 0],
+          [0, 0, 0, 0],
+          [0, 0, 0, 0],
+          [0, 0, 0, 0],
+        ],
+        score: 0,
+        bestScore: 0,
+        keepPlaying: false,
+        history: [],
+      }),
+    );
+  });
+  await page.reload({ waitUntil: "networkidle" });
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowRight");
+  await page.waitForTimeout(320);
+
+  const fastMoveTiles = await collectTiles(page);
+  const fastMoveTurns = await page.locator("#turns-count").textContent();
+  const queuedMoveWorked = fastMoveTiles.some(
+    (tile) => tile.row === "3" && tile.col === "3" && tile.value === "2",
+  );
+
+  if (!queuedMoveWorked || fastMoveTurns?.trim() !== "2") {
+    throw new Error(
+      `Expected rapid ArrowDown+ArrowRight to queue both moves, got turns=${fastMoveTurns} tiles=${JSON.stringify(fastMoveTiles)}`,
+    );
   }
 
   await page.screenshot({ path: screenshotPath, fullPage: true });
