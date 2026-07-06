@@ -1,21 +1,24 @@
 :root {
   color-scheme: light;
   font-family: "Clear Sans", "Helvetica Neue", Arial, sans-serif;
-  color: #776e65;
-  background: #faf8ef;
+  color: #756452;
+  background: #faf8f0;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  --page: #faf8ef;
-  --text: #776e65;
+  --page: #faf8f0;
+  --text: #756452;
   --text-light: #f9f6f2;
-  --board: #bbada0;
-  --cell: rgba(238, 228, 218, 0.35);
+  --board: #c8beb1;
+  --cell: #baac9a;
+  --sand: #eae7d9;
+  --tan: #988876;
+  --near-black: #33312b;
   --tile-light: #eee4da;
   --tile-muted: #ede0c8;
   --button: #8f7a66;
   --button-hover: #7f6b59;
-  --button-danger: #c75f4a;
+  --button-danger: #baac9a;
   --focus: #edc22e;
 }
 
@@ -40,10 +43,10 @@ button {
 }
 
 .game-shell {
-  width: min(500px, calc(100% - 32px));
+  width: min(560px, calc(100% - 24px));
   min-height: 100vh;
   margin: 0 auto;
-  padding: 40px 0 34px;
+  padding: 24px 0 90px;
 }
 
 .game-surface {
@@ -52,64 +55,57 @@ button {
 
 .topbar {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 14px;
-  margin-bottom: 18px;
+  gap: 16px;
+  min-height: 56px;
+  margin-bottom: 24px;
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 12px;
 }
 
 h1 {
   margin: 0;
   color: var(--text);
-  font-size: 80px;
+  font-size: 48px;
   font-weight: 800;
-  line-height: 0.86;
+  line-height: 48px;
   letter-spacing: 0;
-}
-
-.mode-chip {
-  display: inline-flex;
-  align-items: center;
-  height: 30px;
-  margin-top: 12px;
-  padding: 0 12px;
-  border-radius: 3px;
-  background: #eee4da;
-  color: var(--text);
-  font-size: 14px;
-  font-weight: 800;
 }
 
 .score-row {
   display: flex;
-  gap: 6px;
+  flex: 1 1 auto;
+  justify-content: center;
+  gap: 16px;
 }
 
 .score-box,
 .stat {
-  min-width: 88px;
-  border-radius: 3px;
-  background: var(--board);
-  color: var(--text-light);
+  min-width: 68px;
+  border-radius: 14px;
+  background: var(--sand);
+  color: var(--tan);
   font-weight: 800;
   text-align: center;
 }
 
 .score-box {
-  height: 56px;
-  padding: 8px 14px 6px;
+  height: 52px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  padding: 0 14px;
 }
 
 .score-box span,
 .stat span {
   display: block;
-  color: #eee4da;
+  color: var(--tan);
   font-size: 13px;
   font-weight: 800;
   line-height: 1;
@@ -119,45 +115,51 @@ h1 {
 .score-box strong,
 .stat strong {
   display: block;
-  margin-top: 4px;
-  font-size: 25px;
+  margin-top: 0;
+  font-size: 24px;
   line-height: 1;
 }
 
 .toolbar {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  margin-bottom: 16px;
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: flex-end;
 }
 
 .tool-button {
-  min-height: 42px;
+  min-height: 40px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
+  gap: 8px;
   border: 0;
-  border-radius: 3px;
-  background: var(--button);
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(0, 0, 0, 0.02)),
+    var(--button);
   color: var(--text-light);
   font-weight: 800;
   cursor: pointer;
+  padding: 0 16px;
+  box-shadow:
+    0 5px 15px rgba(140, 100, 60, 0.12),
+    0 2px 3px rgba(140, 100, 60, 0.09),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.1);
   transition:
-    background 120ms ease,
-    opacity 120ms ease,
-    transform 120ms ease;
+    background 75ms ease,
+    box-shadow 75ms ease,
+    opacity 75ms ease,
+    transform 75ms ease;
 }
 
 .tool-button svg {
-  width: 17px;
-  height: 17px;
+  width: 20px;
+  height: 20px;
   flex: 0 0 auto;
 }
 
 .tool-button:hover:not(:disabled) {
   background: var(--button-hover);
-  transform: translateY(-1px);
 }
 
 .tool-button:focus-visible,
@@ -180,12 +182,14 @@ h1 {
 }
 
 .tool-button.danger {
-  background: var(--button-danger);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(0, 0, 0, 0.02)),
+    var(--button-danger);
 }
 
 .tool-button.danger:hover:not(:disabled),
 .tool-button.danger.is-active {
-  background: #b94f3f;
+  background: #a99786;
 }
 
 .tool-button.is-active:not(.danger) {
@@ -195,18 +199,25 @@ h1 {
 
 .board-frame {
   position: relative;
-  width: 100%;
+  width: min(492px, 100%);
   aspect-ratio: 1;
-  padding: 15px;
-  border-radius: 6px;
-  background: var(--board);
+  margin: 0 auto;
+  padding: 12px;
+  border-radius: 22px;
+  background:
+    linear-gradient(180deg, #d4cabd 0%, #bfb2a4 100%),
+    var(--board);
+  box-shadow:
+    0 10px 30px rgba(140, 100, 60, 0.18),
+    0 4px 6px rgba(140, 100, 60, 0.13),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.1);
 }
 
 .board {
   position: relative;
   width: 100%;
   height: 100%;
-  --board-gap: 15px;
+  --board-gap: 12px;
   touch-action: none;
 }
 
@@ -225,8 +236,13 @@ h1 {
 }
 
 .grid-cell {
-  border-radius: 3px;
+  border-radius: 10px;
   background: var(--cell);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.15),
+    inset 0 -4px 20px rgba(255, 255, 255, 0.075),
+    inset 0 2px 6px rgba(110, 66, 20, 0.18),
+    inset 0 1px 0 rgba(0, 0, 0, 0.23);
 }
 
 .tile-layer {
@@ -241,7 +257,7 @@ h1 {
   display: block;
   padding: 0;
   border: 0;
-  border-radius: 3px;
+  border-radius: 10px;
   background: transparent;
   color: var(--text);
   cursor: default;
@@ -249,6 +265,7 @@ h1 {
   user-select: none;
   transition: transform 100ms ease-in-out;
   will-change: transform;
+  z-index: 10;
 }
 
 .tile-inner {
@@ -256,11 +273,14 @@ h1 {
   height: 100%;
   display: grid;
   place-items: center;
-  border-radius: 3px;
+  border-radius: 10px;
   background: var(--tile-light);
   font-size: calc(var(--tile-size, 106px) * 0.52);
   font-weight: 800;
   line-height: 1;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.1);
   transition:
     box-shadow 120ms ease,
     filter 120ms ease;
@@ -288,12 +308,26 @@ h1 {
   font-size: calc(var(--tile-size, 106px) * 0.28);
 }
 
+.tile.is-ghost {
+  pointer-events: none;
+  z-index: 5;
+}
+
+.tile.is-new {
+  z-index: 15;
+}
+
+.tile.is-merged {
+  pointer-events: none;
+  z-index: 20;
+}
+
 .tile.is-new .tile-inner {
-  animation: tile-appear 200ms ease both;
+  animation: tile-appear 200ms ease 100ms both;
 }
 
 .tile.is-merged .tile-inner {
-  animation: tile-pop 200ms ease both;
+  animation: tile-pop 200ms ease 100ms both;
 }
 
 .tile-2 .tile-inner {
@@ -377,7 +411,7 @@ h1 {
   z-index: 5;
   display: grid;
   place-items: center;
-  border-radius: 6px;
+  border-radius: 22px;
   background: rgba(238, 228, 218, 0.73);
   color: var(--text);
   animation: overlay-fade 700ms ease 250ms both;
@@ -415,18 +449,72 @@ h1 {
   gap: 10px;
 }
 
+.helper-dock {
+  width: max-content;
+  max-width: calc(100% - 20px);
+  display: flex;
+  gap: 12px;
+  margin: 24px auto 0;
+  padding: 12px;
+  border-radius: 22px;
+  background: rgba(234, 231, 217, 0.82);
+  box-shadow:
+    0 12px 30px rgba(140, 100, 60, 0.09),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.helper-dock .tool-button {
+  width: 48px;
+  min-width: 48px;
+  height: 48px;
+  min-height: 48px;
+  padding: 0;
+  border-radius: 10px;
+  background: rgba(186, 172, 154, 0.3);
+  color: #ffffff;
+  box-shadow: none;
+}
+
+.helper-dock .tool-button:hover:not(:disabled),
+.helper-dock .tool-button.is-active:not(:disabled) {
+  background: rgba(186, 172, 154, 0.58);
+}
+
+.helper-dock .tool-button:disabled {
+  opacity: 0.42;
+}
+
+.helper-dock .tool-button svg {
+  width: 32px;
+  height: 32px;
+  stroke-width: 2.6;
+}
+
+.helper-dock .tool-button span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .status-line {
-  min-height: 28px;
+  min-height: 24px;
   margin-top: 12px;
-  color: var(--text);
+  color: var(--tan);
+  font-size: 13px;
   font-weight: 800;
+  text-align: center;
 }
 
 .stats-panel {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 12px;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .stat {
@@ -491,26 +579,36 @@ h1 {
 
 @media (max-width: 560px) {
   .game-shell {
-    width: min(100% - 20px, 500px);
-    padding: 18px 0 24px;
+    width: min(100% - 20px, 560px);
+    padding: 18px 0 34px;
+  }
+
+  .topbar {
+    flex-wrap: wrap;
+    gap: 10px 12px;
+    margin-bottom: 16px;
   }
 
   h1 {
-    font-size: 64px;
+    font-size: 48px;
+    line-height: 48px;
   }
 
-  .mode-chip {
-    margin-top: 8px;
+  .score-row {
+    order: 3;
+    flex-basis: 100%;
+    gap: 10px;
   }
 
   .score-box {
+    flex: 1 1 0;
     min-width: 72px;
     height: 52px;
     padding-inline: 10px;
   }
 
   .toolbar {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-left: auto;
   }
 
   .board-frame {
@@ -520,6 +618,13 @@ h1 {
   .board {
     --board-gap: 10px;
   }
+
+  .helper-dock {
+    gap: 10px;
+    margin-top: 16px;
+    padding: 10px;
+    border-radius: 18px;
+  }
 }
 
 @media (max-width: 380px) {
@@ -528,7 +633,8 @@ h1 {
   }
 
   h1 {
-    font-size: 58px;
+    font-size: 44px;
+    line-height: 44px;
   }
 
   .score-box {
@@ -537,5 +643,9 @@ h1 {
 
   .tool-button {
     gap: 6px;
+  }
+
+  .toolbar .tool-button {
+    padding-inline: 12px;
   }
 }

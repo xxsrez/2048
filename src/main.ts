@@ -33,6 +33,7 @@ interface RenderTile {
   col: number;
   isNew: boolean;
   isMerged: boolean;
+  isGhost: boolean;
 }
 
 interface RuntimeState {
@@ -59,7 +60,7 @@ interface PersistedGame {
 }
 
 interface MoveAnimation {
-  slidingTiles: RenderTile[];
+  displayTiles: RenderTile[];
   settledTiles: RenderTile[];
 }
 
@@ -83,7 +84,6 @@ app.innerHTML = `
       <header class="topbar">
         <div class="brand">
           <h1 id="game-title">2048</h1>
-          <span class="mode-chip">4x4</span>
         </div>
         <div class="score-row" aria-label="Scores">
           <div class="score-box">
@@ -95,26 +95,13 @@ app.innerHTML = `
             <strong id="best-score-value">0</strong>
           </div>
         </div>
+        <nav class="toolbar" aria-label="Game controls">
+          <button class="tool-button primary" id="new-game" type="button" title="New game" aria-label="New game">
+            <i data-lucide="rotate-ccw"></i>
+            <span>New Game</span>
+          </button>
+        </nav>
       </header>
-
-      <nav class="toolbar" aria-label="Game controls">
-        <button class="tool-button primary" id="new-game" type="button" title="New game" aria-label="New game">
-          <i data-lucide="rotate-ccw"></i>
-          <span>New</span>
-        </button>
-        <button class="tool-button" id="undo" type="button" title="Undo" aria-label="Undo">
-          <i data-lucide="undo-2"></i>
-          <span>Undo</span>
-        </button>
-        <button class="tool-button" id="swap" type="button" title="Swap 2" aria-label="Swap 2" aria-pressed="false">
-          <i data-lucide="arrow-left-right"></i>
-          <span>Swap 2</span>
-        </button>
-        <button class="tool-button danger" id="delete" type="button" title="Delete tile" aria-label="Delete tile" aria-pressed="false">
-          <i data-lucide="eraser"></i>
-          <span>Delete</span>
-        </button>
-      </nav>
 
       <div class="board-frame">
         <div class="board" id="board" role="grid" aria-label="2048 board" tabindex="0">
@@ -138,6 +125,21 @@ app.innerHTML = `
           </div>
         </div>
       </div>
+
+      <nav class="helper-dock" aria-label="Helper controls">
+        <button class="tool-button" id="undo" type="button" title="Undo" aria-label="Undo">
+          <i data-lucide="undo-2"></i>
+          <span>Undo</span>
+        </button>
+        <button class="tool-button" id="swap" type="button" title="Swap 2" aria-label="Swap 2" aria-pressed="false">
+          <i data-lucide="arrow-left-right"></i>
+          <span>Swap 2</span>
+        </button>
+        <button class="tool-button danger" id="delete" type="button" title="Delete tile" aria-label="Delete tile" aria-pressed="false">
+          <i data-lucide="eraser"></i>
+          <span>Delete</span>
+        </button>
+      </nav>
 
       <div class="status-line" id="status-line" role="status" aria-live="polite"></div>
     </section>
@@ -485,10 +487,10 @@ function move(direction: Direction): void {
   }
 
   pushHistory();
-  const moveAnimation = createMoveAnimation(state.tiles, direction);
   const spawn = spawnTileWithPosition(result.board);
+  const moveAnimation = createMoveAnimation(state.tiles, direction, spawn);
   state.board = spawn.board;
-  state.tiles = moveAnimation.slidingTiles;
+  state.tiles = moveAnimation.displayTiles;
   state.isAnimating = true;
   state.score += result.scoreGain;
   state.bestScore = Math.max(state.bestScore, state.score);
@@ -499,19 +501,6 @@ function move(direction: Direction): void {
 
   moveAnimationTimer = window.setTimeout(() => {
     state.tiles = moveAnimation.settledTiles;
-
-    if (spawn.position && spawn.value) {
-      state.tiles.push({
-        id: nextTileId,
-        value: spawn.value,
-        row: spawn.position.row,
-        col: spawn.position.col,
-        isNew: true,
-        isMerged: false,
-      });
-      nextTileId += 1;
-    }
-
     state.isAnimating = false;
     render();
     playQueuedMove();
@@ -674,6 +663,10 @@ function getTileClassName(tile: RenderTile, selected: boolean): string {
     classes.push("is-merged");
   }
 
+  if (tile.isGhost) {
+    classes.push("is-ghost");
+  }
+
   return classes.join(" ");
 }
 
@@ -693,6 +686,7 @@ function createRenderTiles(board: Board, markNew = false): RenderTile[] {
         col: colIndex,
         isNew: markNew,
         isMerged: false,
+        isGhost: false,
       });
       nextTileId += 1;
     });
@@ -704,8 +698,9 @@ function createRenderTiles(board: Board, markNew = false): RenderTile[] {
 function createMoveAnimation(
   tiles: RenderTile[],
   direction: Direction,
+  spawn: { position: Position | null; value: number | null },
 ): MoveAnimation {
-  const slidingTiles: RenderTile[] = [];
+  const displayTiles: RenderTile[] = [];
   const settledTiles: RenderTile[] = [];
 
   for (let lineIndex = 0; lineIndex < GRID_SIZE; lineIndex += 1) {
@@ -718,42 +713,49 @@ function createMoveAnimation(
 
       if (next && current.value === next.value) {
         const targetPosition = getTargetPosition(direction, lineIndex, outputIndex);
-
-        slidingTiles.push({
-          ...current,
-          ...targetPosition,
-          isNew: false,
-          isMerged: false,
-        });
-        slidingTiles.push({
-          ...next,
-          ...targetPosition,
-          isNew: false,
-          isMerged: false,
-        });
-        settledTiles.push({
+        const mergedTile: RenderTile = {
           id: nextTileId,
           value: current.value * 2,
           ...targetPosition,
           isNew: false,
           isMerged: true,
+          isGhost: false,
+        };
+
+        displayTiles.push({
+          ...current,
+          ...targetPosition,
+          isNew: false,
+          isMerged: false,
+          isGhost: true,
         });
+        displayTiles.push({
+          ...next,
+          ...targetPosition,
+          isNew: false,
+          isMerged: false,
+          isGhost: true,
+        });
+        displayTiles.push(mergedTile);
+        settledTiles.push(mergedTile);
         nextTileId += 1;
         index += 1;
       } else {
         const targetPosition = getTargetPosition(direction, lineIndex, outputIndex);
 
-        slidingTiles.push({
+        displayTiles.push({
           ...current,
           ...targetPosition,
           isNew: false,
           isMerged: false,
+          isGhost: false,
         });
         settledTiles.push({
           ...current,
           ...targetPosition,
           isNew: false,
           isMerged: false,
+          isGhost: false,
         });
       }
 
@@ -761,7 +763,23 @@ function createMoveAnimation(
     }
   }
 
-  return { slidingTiles, settledTiles };
+  if (spawn.position && spawn.value) {
+    const spawnedTile: RenderTile = {
+      id: nextTileId,
+      value: spawn.value,
+      row: spawn.position.row,
+      col: spawn.position.col,
+      isNew: true,
+      isMerged: false,
+      isGhost: false,
+    };
+
+    displayTiles.push(spawnedTile);
+    settledTiles.push(spawnedTile);
+    nextTileId += 1;
+  }
+
+  return { displayTiles, settledTiles };
 }
 
 function getLineTiles(
@@ -825,6 +843,7 @@ function swapRenderTiles(
         col: second.col,
         isNew: false,
         isMerged: false,
+        isGhost: false,
       };
     }
 
@@ -835,10 +854,11 @@ function swapRenderTiles(
         col: first.col,
         isNew: false,
         isMerged: false,
+        isGhost: false,
       };
     }
 
-    return { ...tile, isNew: false, isMerged: false };
+    return { ...tile, isNew: false, isMerged: false, isGhost: false };
   });
 }
 
@@ -870,6 +890,7 @@ function scheduleAnimationCleanup(): void {
       ...tile,
       isNew: false,
       isMerged: false,
+      isGhost: false,
     }));
     renderTiles();
   }, ANIMATION_RESET_MS);

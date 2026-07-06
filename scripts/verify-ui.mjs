@@ -95,12 +95,11 @@ try {
   await page.waitForTimeout(30);
 
   const slidingTexts = await page.locator(".tile").allTextContents();
-  if (
-    slidingTexts.length !== 2 ||
-    slidingTexts.some((text) => text.trim() !== "2")
-  ) {
+  const sourceTwos = slidingTexts.filter((text) => text.trim() === "2").length;
+
+  if (sourceTwos < 2 || !slidingTexts.some((text) => text.trim() === "4")) {
     throw new Error(
-      `Expected both source tiles to remain during merge slide, got ${slidingTexts.join(", ")}`,
+      `Expected source tiles and delayed merged tile during merge slide, got ${slidingTexts.join(", ")}`,
     );
   }
 
