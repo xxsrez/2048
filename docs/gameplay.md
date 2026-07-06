@@ -27,4 +27,4 @@ Helpers save history first, so they can be undone.
 
 ## Persistence
 
-The current board, score, helper uses, keep-playing state, and undo history are saved in `localStorage`. Refreshing the page restores the in-progress game. New Game starts a fresh saved game with zero helper uses.
+The current board, score, helper uses, keep-playing state, and undo history are saved in `localStorage`. Helper uses are also mirrored in a dedicated storage key so refreshes and older saved games keep the charges stable. Refreshing the page restores the in-progress game. New Game starts a fresh saved game with zero helper uses.

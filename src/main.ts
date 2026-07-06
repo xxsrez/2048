@@ -71,6 +71,7 @@ interface MoveAnimation {
 
 const BEST_SCORE_KEY = "local-2048-best-score";
 const GAME_STATE_KEY = "local-2048-game-state";
+const HELPER_CHARGES_KEY = "local-2048-helper-charges";
 const HISTORY_LIMIT = 100;
 const MAX_QUEUED_MOVES = 8;
 const HELPER_MAX_CHARGES = 2;
@@ -1065,6 +1066,7 @@ function persistGameState(): void {
 
   try {
     window.localStorage.setItem(GAME_STATE_KEY, JSON.stringify(gameState));
+    writeHelperCharges(state.helperCharges);
     writeBestScore(state.bestScore);
   } catch {
     window.console.warn("Could not persist game state.");
@@ -1095,7 +1097,7 @@ function parsePersistedGame(value: unknown): PersistedGame | null {
   const history = parseHistory(value.history);
   const score = parseNonNegativeInteger(value.score);
   const bestScore = parseNonNegativeInteger(value.bestScore);
-  const helperCharges = parseHelperCharges(value.helperCharges);
+  const helperCharges = parsePersistedHelperCharges(value.helperCharges, board);
 
   if (
     !board ||
@@ -1119,9 +1121,20 @@ function parsePersistedGame(value: unknown): PersistedGame | null {
   };
 }
 
+function parsePersistedHelperCharges(
+  value: unknown,
+  board: Board | null,
+): HelperCharges | null {
+  if (value !== undefined) {
+    return parseHelperCharges(value);
+  }
+
+  return readHelperCharges() ?? inferHelperChargesFromBoard(board);
+}
+
 function parseHelperCharges(value: unknown): HelperCharges | null {
   if (value === undefined) {
-    return createEmptyHelperCharges();
+    return null;
   }
 
   if (!isRecord(value)) {
@@ -1141,6 +1154,40 @@ function parseHelperCharges(value: unknown): HelperCharges | null {
   }
 
   return charges;
+}
+
+function inferHelperChargesFromBoard(board: Board | null): HelperCharges {
+  const charges = createEmptyHelperCharges();
+
+  if (!board) {
+    return charges;
+  }
+
+  const largestTile = getLargestTile(board);
+
+  charges.undo = largestTile >= 256 ? 2 : largestTile >= 128 ? 1 : 0;
+  charges.swap = largestTile >= 512 ? 2 : largestTile >= 256 ? 1 : 0;
+  charges.delete = largestTile >= 1024 ? 2 : largestTile >= 512 ? 1 : 0;
+
+  return charges;
+}
+
+function readHelperCharges(): HelperCharges | null {
+  try {
+    const stored = window.localStorage.getItem(HELPER_CHARGES_KEY);
+
+    if (!stored) {
+      return null;
+    }
+
+    return parseHelperCharges(JSON.parse(stored));
+  } catch {
+    return null;
+  }
+}
+
+function writeHelperCharges(helperCharges: HelperCharges): void {
+  window.localStorage.setItem(HELPER_CHARGES_KEY, JSON.stringify(helperCharges));
 }
 
 function parseHistory(value: unknown): Snapshot[] | null {

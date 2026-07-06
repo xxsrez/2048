@@ -48,6 +48,42 @@ try {
     }
   }
 
+  await page.evaluate(() => {
+    window.localStorage.clear();
+    window.localStorage.setItem(
+      "local-2048-game-state",
+      JSON.stringify({
+        version: 1,
+        board: [
+          [512, 2, 0, 0],
+          [0, 0, 0, 0],
+          [0, 0, 0, 0],
+          [0, 0, 0, 0],
+        ],
+        score: 512,
+        bestScore: 512,
+        keepPlaying: false,
+        history: [],
+      }),
+    );
+  });
+  await page.reload({ waitUntil: "networkidle" });
+  await page.getByRole("heading", { name: "2048" }).waitFor();
+  await expectHelperCounts(page, { undo: 2, swap: 2, delete: 1 });
+
+  const migratedGameCharges = await readStoredGameHelperCounts(page);
+  const mirroredCharges = await readMirroredHelperCounts(page);
+  if (
+    JSON.stringify(migratedGameCharges) !==
+      JSON.stringify({ undo: 2, swap: 2, delete: 1 }) ||
+    JSON.stringify(mirroredCharges) !==
+      JSON.stringify({ undo: 2, swap: 2, delete: 1 })
+  ) {
+    throw new Error(
+      `Expected legacy helper charges to migrate into both stores, got game=${JSON.stringify(migratedGameCharges)} mirror=${JSON.stringify(mirroredCharges)}`,
+    );
+  }
+
   await setSavedGame(page, {
     board: [
       [64, 64, 64, 64],
@@ -62,6 +98,11 @@ try {
 
   const persistedTiles = await collectTiles(page);
   const persistedCounts = await collectHelperCounts(page);
+  const mirroredPersistedCounts = await readMirroredHelperCounts(page);
+  if (JSON.stringify(mirroredPersistedCounts) !== JSON.stringify(persistedCounts)) {
+    throw new Error("Helper charges were not mirrored into their dedicated storage key.");
+  }
+
   await page.reload({ waitUntil: "networkidle" });
   await page.getByRole("heading", { name: "2048" }).waitFor();
 
@@ -272,6 +313,20 @@ async function collectHelperCounts(page) {
       ]),
     ),
   );
+}
+
+async function readStoredGameHelperCounts(page) {
+  return page.evaluate(() => {
+    const stored = window.localStorage.getItem("local-2048-game-state");
+    return stored ? JSON.parse(stored).helperCharges : null;
+  });
+}
+
+async function readMirroredHelperCounts(page) {
+  return page.evaluate(() => {
+    const stored = window.localStorage.getItem("local-2048-helper-charges");
+    return stored ? JSON.parse(stored) : null;
+  });
 }
 
 async function expectHelperCounts(page, expected) {

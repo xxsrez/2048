@@ -20,7 +20,7 @@
 
 The UI keeps a runtime state with board, animated tile identities, score, best score, helper-use charges, helper mode, selected cells, and undo history. Pure engine functions never mutate the incoming board, which makes moves easy to test and safe to undo.
 
-Best score and the current in-progress game are stored in `localStorage`. Saved game data includes helper-use charges, is versioned, and is validated before restore; invalid data falls back to a fresh board.
+Best score and the current in-progress game are stored in `localStorage`. Saved game data includes helper-use charges, is versioned, and is validated before restore; invalid data falls back to a fresh board. Helper-use charges are also mirrored under `local-2048-helper-charges`, and legacy saved games without charges infer a conservative charge state from the largest tile before being rewritten in the current format.
 
 Move rendering keeps source tiles sliding while merged and new tiles are already in the DOM with delayed pop/appear animations. This mirrors the original 2048 actuator timing more closely than changing tile values during movement.
 
