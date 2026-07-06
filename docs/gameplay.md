@@ -21,3 +21,7 @@ The helpers are intentionally direct and do not spawn new tiles:
 - Delete enters a selection mode, then clears one occupied cell.
 
 Helpers save history first, so they can be undone.
+
+## Persistence
+
+The current board, score, keep-playing state, and undo history are saved in `localStorage`. Refreshing the page restores the in-progress game. New Game starts a fresh saved game.

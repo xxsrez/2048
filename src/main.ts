@@ -48,7 +48,17 @@ interface RuntimeState {
   message: string;
 }
 
+interface PersistedGame {
+  version: 1;
+  board: Board;
+  score: number;
+  bestScore: number;
+  keepPlaying: boolean;
+  history: Snapshot[];
+}
+
 const BEST_SCORE_KEY = "local-2048-best-score";
+const GAME_STATE_KEY = "local-2048-game-state";
 const HISTORY_LIMIT = 100;
 const ANIMATION_RESET_MS = 260;
 const SWIPE_THRESHOLD = 36;
@@ -170,19 +180,25 @@ let tileMetrics = {
   gap: 0,
 };
 
-const initialBoard = createInitialBoard();
+const savedGame = readGameState();
+const initialBoard = savedGame?.board ?? createInitialBoard();
+const initialBestScore = Math.max(
+  readBestScore(),
+  savedGame?.bestScore ?? 0,
+  savedGame?.score ?? 0,
+);
 
 const state: RuntimeState = {
   board: initialBoard,
-  tiles: createRenderTiles(initialBoard, true),
-  score: 0,
-  bestScore: readBestScore(),
-  keepPlaying: false,
-  history: [],
+  tiles: createRenderTiles(initialBoard, !savedGame),
+  score: savedGame?.score ?? 0,
+  bestScore: initialBestScore,
+  keepPlaying: savedGame?.keepPlaying ?? false,
+  history: savedGame?.history ?? [],
   mode: "move",
   selection: [],
   lastGain: 0,
-  message: "Ready",
+  message: savedGame ? "Restored" : "Ready",
 };
 
 renderGrid();
@@ -231,7 +247,15 @@ boardElement.addEventListener("pointerup", (event) => {
     return;
   }
 
-  move(Math.abs(diffX) > Math.abs(diffY) ? (diffX > 0 ? "right" : "left") : diffY > 0 ? "down" : "up");
+  move(
+    Math.abs(diffX) > Math.abs(diffY)
+      ? diffX > 0
+        ? "right"
+        : "left"
+      : diffY > 0
+        ? "down"
+        : "up",
+  );
 });
 
 window.addEventListener("keydown", (event) => {
@@ -470,6 +494,7 @@ function render(): void {
 
   renderTiles();
   renderOverlay(status);
+  persistGameState();
   scheduleAnimationCleanup();
 }
 
@@ -685,11 +710,23 @@ function swapRenderTiles(
 ): RenderTile[] {
   return tiles.map((tile) => {
     if (positionsEqual(tile, first)) {
-      return { ...tile, row: second.row, col: second.col, isNew: false, isMerged: false };
+      return {
+        ...tile,
+        row: second.row,
+        col: second.col,
+        isNew: false,
+        isMerged: false,
+      };
     }
 
     if (positionsEqual(tile, second)) {
-      return { ...tile, row: first.row, col: first.col, isNew: false, isMerged: false };
+      return {
+        ...tile,
+        row: first.row,
+        col: first.col,
+        isNew: false,
+        isMerged: false,
+      };
     }
 
     return { ...tile, isNew: false, isMerged: false };
@@ -730,10 +767,168 @@ function scheduleAnimationCleanup(): void {
 }
 
 function readBestScore(): number {
-  const stored = Number(window.localStorage.getItem(BEST_SCORE_KEY));
-  return Number.isFinite(stored) ? stored : 0;
+  try {
+    const stored = Number(window.localStorage.getItem(BEST_SCORE_KEY));
+    return Number.isFinite(stored) ? stored : 0;
+  } catch {
+    return 0;
+  }
 }
 
 function writeBestScore(bestScore: number): void {
-  window.localStorage.setItem(BEST_SCORE_KEY, String(bestScore));
+  try {
+    window.localStorage.setItem(BEST_SCORE_KEY, String(bestScore));
+  } catch {
+    window.console.warn("Could not persist best score.");
+  }
+}
+
+function persistGameState(): void {
+  const gameState: PersistedGame = {
+    version: 1,
+    board: cloneBoard(state.board),
+    score: state.score,
+    bestScore: state.bestScore,
+    keepPlaying: state.keepPlaying,
+    history: state.history.map((item) => ({
+      board: cloneBoard(item.board),
+      score: item.score,
+      keepPlaying: item.keepPlaying,
+    })),
+  };
+
+  try {
+    window.localStorage.setItem(GAME_STATE_KEY, JSON.stringify(gameState));
+    writeBestScore(state.bestScore);
+  } catch {
+    window.console.warn("Could not persist game state.");
+  }
+}
+
+function readGameState(): PersistedGame | null {
+  try {
+    const stored = window.localStorage.getItem(GAME_STATE_KEY);
+
+    if (!stored) {
+      return null;
+    }
+
+    const value = JSON.parse(stored) as unknown;
+    return parsePersistedGame(value);
+  } catch {
+    return null;
+  }
+}
+
+function parsePersistedGame(value: unknown): PersistedGame | null {
+  if (!isRecord(value) || value.version !== 1) {
+    return null;
+  }
+
+  const board = parseBoard(value.board);
+  const history = parseHistory(value.history);
+  const score = parseNonNegativeInteger(value.score);
+  const bestScore = parseNonNegativeInteger(value.bestScore);
+
+  if (
+    !board ||
+    !history ||
+    score === null ||
+    bestScore === null ||
+    typeof value.keepPlaying !== "boolean"
+  ) {
+    return null;
+  }
+
+  return {
+    version: 1,
+    board,
+    score,
+    bestScore,
+    keepPlaying: value.keepPlaying,
+    history,
+  };
+}
+
+function parseHistory(value: unknown): Snapshot[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const snapshots = value.slice(-HISTORY_LIMIT).map((item) => {
+    if (!isRecord(item) || typeof item.keepPlaying !== "boolean") {
+      return null;
+    }
+
+    const board = parseBoard(item.board);
+    const score = parseNonNegativeInteger(item.score);
+
+    if (!board || score === null) {
+      return null;
+    }
+
+    return {
+      board,
+      score,
+      keepPlaying: item.keepPlaying,
+    };
+  });
+
+  if (snapshots.some((item) => item === null)) {
+    return null;
+  }
+
+  return snapshots as Snapshot[];
+}
+
+function parseBoard(value: unknown): Board | null {
+  if (!Array.isArray(value) || value.length !== GRID_SIZE) {
+    return null;
+  }
+
+  const board = value.map((row) => {
+    if (!Array.isArray(row) || row.length !== GRID_SIZE) {
+      return null;
+    }
+
+    const parsedRow = row.map((cell) => {
+      const parsedCell = parseTileValue(cell);
+      return parsedCell;
+    });
+
+    return parsedRow.some((cell) => cell === null) ? null : parsedRow;
+  });
+
+  if (board.some((row) => row === null)) {
+    return null;
+  }
+
+  return board as Board;
+}
+
+function parseTileValue(value: unknown): number | null {
+  const numberValue = Number(value);
+
+  if (!Number.isSafeInteger(numberValue) || numberValue < 0) {
+    return null;
+  }
+
+  if (numberValue === 0) {
+    return 0;
+  }
+
+  return numberValue >= 2 && Number.isInteger(Math.log2(numberValue))
+    ? numberValue
+    : null;
+}
+
+function parseNonNegativeInteger(value: unknown): number | null {
+  const numberValue = Number(value);
+  return Number.isSafeInteger(numberValue) && numberValue >= 0
+    ? numberValue
+    : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }

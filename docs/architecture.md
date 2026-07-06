@@ -20,4 +20,4 @@
 
 The UI keeps a runtime state with board, animated tile identities, score, best score, helper mode, selected cells, and undo history. Pure engine functions never mutate the incoming board, which makes moves easy to test and safe to undo.
 
-Best score is stored in `localStorage`; the current board is intentionally not persisted.
+Best score and the current in-progress game are stored in `localStorage`. Saved game data is versioned and validated before restore; invalid data falls back to a fresh board.
