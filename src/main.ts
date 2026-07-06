@@ -17,11 +17,20 @@ import {
   spawnTileWithPosition,
   swapTiles,
 } from "./game";
-
-type BoardHelperMode = "swap" | "delete";
-type HelperAction = "undo" | BoardHelperMode;
-type HelperMode = "move" | BoardHelperMode;
-type HelperCharges = Record<HelperAction, number>;
+import {
+  HELPER_ACTIONS,
+  HELPER_LABELS,
+  HELPER_MAX_CHARGES,
+  awardHelperCharges,
+  consumeHelperCharge,
+  createEmptyHelperCharges,
+  inferHelperChargesFromBoard,
+  parseHelperCharges,
+  type BoardHelperMode,
+  type HelperAction,
+  type HelperCharges,
+  type HelperMode,
+} from "./helpers";
 
 interface Snapshot {
   board: Board;
@@ -74,21 +83,9 @@ const GAME_STATE_KEY = "local-2048-game-state";
 const HELPER_CHARGES_KEY = "local-2048-helper-charges";
 const HISTORY_LIMIT = 100;
 const MAX_QUEUED_MOVES = 8;
-const HELPER_MAX_CHARGES = 2;
 const MOVE_SETTLE_MS = 120;
 const ANIMATION_RESET_MS = 260;
 const SWIPE_THRESHOLD = 36;
-const HELPER_ACTIONS: HelperAction[] = ["undo", "swap", "delete"];
-const HELPER_LABELS: Record<HelperAction, string> = {
-  undo: "Undo",
-  swap: "Swap 2",
-  delete: "Delete tile",
-};
-const HELPER_REWARD_BY_TILE = new Map<number, HelperAction>([
-  [128, "undo"],
-  [256, "swap"],
-  [512, "delete"],
-]);
 
 const app = document.querySelector<HTMLDivElement>("#app");
 
@@ -418,7 +415,7 @@ function undo(): void {
   state.tiles = createRenderTiles(state.board);
   state.score = previous.score;
   state.keepPlaying = previous.keepPlaying;
-  consumeHelperCharge("undo");
+  state.helperCharges = consumeHelperCharge(state.helperCharges, "undo");
   state.mode = "move";
   state.selection = [];
   state.lastGain = 0;
@@ -491,7 +488,7 @@ function handleCellClick(position: Position): void {
     state.tiles = state.tiles.filter(
       (tile) => tile.row !== position.row || tile.col !== position.col,
     );
-    consumeHelperCharge("delete");
+    state.helperCharges = consumeHelperCharge(state.helperCharges, "delete");
     state.keepPlaying = state.keepPlaying && getLargestTile(state.board) >= 2048;
     state.mode = "move";
     state.selection = [];
@@ -520,7 +517,7 @@ function handleCellClick(position: Position): void {
   pushHistory();
   state.board = swapTiles(state.board, selectedPosition, position);
   state.tiles = swapRenderTiles(state.tiles, selectedPosition, position);
-  consumeHelperCharge("swap");
+  state.helperCharges = consumeHelperCharge(state.helperCharges, "swap");
   state.mode = "move";
   state.selection = [];
   state.lastGain = 0;
@@ -557,7 +554,12 @@ function move(direction: Direction): void {
   pushHistory();
   const spawn = spawnTileWithPosition(result.board);
   const moveAnimation = createMoveAnimation(state.tiles, direction, spawn);
-  awardHelperCharges(moveAnimation.settledTiles);
+  state.helperCharges = awardHelperCharges(
+    state.helperCharges,
+    moveAnimation.settledTiles
+      .filter((tile) => tile.isMerged)
+      .map((tile) => tile.value),
+  );
   state.board = spawn.board;
   state.tiles = moveAnimation.displayTiles;
   state.isAnimating = true;
@@ -772,37 +774,6 @@ function createRenderTiles(board: Board, markNew = false): RenderTile[] {
   });
 
   return tiles;
-}
-
-function createEmptyHelperCharges(): HelperCharges {
-  return {
-    undo: 0,
-    swap: 0,
-    delete: 0,
-  };
-}
-
-function awardHelperCharges(tiles: RenderTile[]): void {
-  tiles.forEach((tile) => {
-    if (!tile.isMerged) {
-      return;
-    }
-
-    const action = HELPER_REWARD_BY_TILE.get(tile.value);
-
-    if (!action) {
-      return;
-    }
-
-    state.helperCharges[action] = Math.min(
-      state.helperCharges[action] + 1,
-      HELPER_MAX_CHARGES,
-    );
-  });
-}
-
-function consumeHelperCharge(action: HelperAction): void {
-  state.helperCharges[action] = Math.max(state.helperCharges[action] - 1, 0);
 }
 
 function renderHelperCharges(): void {
@@ -1130,46 +1101,6 @@ function parsePersistedHelperCharges(
   }
 
   return readHelperCharges() ?? inferHelperChargesFromBoard(board);
-}
-
-function parseHelperCharges(value: unknown): HelperCharges | null {
-  if (value === undefined) {
-    return null;
-  }
-
-  if (!isRecord(value)) {
-    return null;
-  }
-
-  const charges = createEmptyHelperCharges();
-
-  for (const action of HELPER_ACTIONS) {
-    const parsedCharge = parseNonNegativeInteger(value[action]);
-
-    if (parsedCharge === null) {
-      return null;
-    }
-
-    charges[action] = Math.min(parsedCharge, HELPER_MAX_CHARGES);
-  }
-
-  return charges;
-}
-
-function inferHelperChargesFromBoard(board: Board | null): HelperCharges {
-  const charges = createEmptyHelperCharges();
-
-  if (!board) {
-    return charges;
-  }
-
-  const largestTile = getLargestTile(board);
-
-  charges.undo = largestTile >= 256 ? 2 : largestTile >= 128 ? 1 : 0;
-  charges.swap = largestTile >= 512 ? 2 : largestTile >= 256 ? 1 : 0;
-  charges.delete = largestTile >= 1024 ? 2 : largestTile >= 512 ? 1 : 0;
-
-  return charges;
 }
 
 function readHelperCharges(): HelperCharges | null {

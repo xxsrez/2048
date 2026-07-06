@@ -11,9 +11,11 @@
 ## Source Layout
 
 - `src/game.ts` contains deterministic board operations.
-- `src/main.ts` owns UI state, input handling, helpers, persistence, and the animated tile layer.
+- `src/helpers.ts` contains helper-charge rules, caps, parsing, and legacy charge inference.
+- `src/main.ts` owns UI state, input handling, persistence, and the animated tile layer.
 - `src/styles.css` contains the responsive game surface.
-- `src/game.test.ts` validates movement, merge, spawn, and helper behavior.
+- `src/game.test.ts` validates movement, merge, spawn, and board helper operations.
+- `src/helpers.test.ts` validates helper-charge awarding, spending, parsing, and legacy inference.
 - `scripts/verify-ui.mjs` runs a browser sanity-check against a live dev server.
 
 ## State Model
