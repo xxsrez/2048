@@ -363,6 +363,7 @@ h1 {
 .tile-128 .tile-inner {
   background: #edcf72;
   color: #f9f6f2;
+  font-size: calc(var(--tile-size, 106px) * 0.42);
   box-shadow:
     0 0 30px 10px rgba(243, 215, 116, 0.24),
     inset 0 0 0 1px rgba(255, 255, 255, 0.14);
@@ -371,6 +372,7 @@ h1 {
 .tile-256 .tile-inner {
   background: #edcc61;
   color: #f9f6f2;
+  font-size: calc(var(--tile-size, 106px) * 0.42);
   box-shadow:
     0 0 30px 10px rgba(243, 215, 116, 0.32),
     inset 0 0 0 1px rgba(255, 255, 255, 0.19);
@@ -379,6 +381,7 @@ h1 {
 .tile-512 .tile-inner {
   background: #edc850;
   color: #f9f6f2;
+  font-size: calc(var(--tile-size, 106px) * 0.42);
   box-shadow:
     0 0 30px 10px rgba(243, 215, 116, 0.4),
     inset 0 0 0 1px rgba(255, 255, 255, 0.24);

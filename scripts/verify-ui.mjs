@@ -48,6 +48,17 @@ try {
     }
   }
 
+  await setSavedGame(page, {
+    board: [
+      [64, 128, 1024, 2048],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+    ],
+    keepPlaying: true,
+  });
+  await expectTileFontScale(page);
+
   await page.evaluate(() => {
     window.localStorage.clear();
     window.localStorage.setItem(
@@ -416,6 +427,38 @@ async function expectGameOverActions(page, { undoDisabled }) {
 
   if (await page.locator("#restart").isDisabled()) {
     throw new Error("Restart should remain available on game over.");
+  }
+}
+
+async function expectTileFontScale(page) {
+  const fontSizes = await page.locator(".tile").evaluateAll((tiles) =>
+    Object.fromEntries(
+      tiles.map((tile) => [
+        tile.textContent?.trim(),
+        Number.parseFloat(
+          getComputedStyle(tile.querySelector(".tile-inner")).fontSize,
+        ),
+      ]),
+    ),
+  );
+
+  const baseSize = fontSizes["64"];
+  const mediumSize = fontSizes["128"];
+  const largeSize = fontSizes["1024"];
+
+  if (!baseSize || !mediumSize || !largeSize) {
+    throw new Error(`Could not read expected tile font sizes: ${JSON.stringify(fontSizes)}`);
+  }
+
+  const mediumRatio = mediumSize / baseSize;
+  const largeRatio = largeSize / baseSize;
+
+  if (mediumRatio <= 0.72 || mediumRatio >= 0.86) {
+    throw new Error(`Expected 128 font to be close to original scale, got ratio=${mediumRatio}`);
+  }
+
+  if (largeRatio <= 0.56 || largeRatio >= mediumRatio) {
+    throw new Error(`Expected 1024 font to be smaller than 128, got ratio=${largeRatio}`);
   }
 }
 
