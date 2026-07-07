@@ -286,6 +286,18 @@ undoButton.addEventListener("click", undo);
 swapButton.addEventListener("click", () => toggleMode("swap"));
 deleteButton.addEventListener("click", () => toggleMode("delete"));
 
+document.addEventListener("selectstart", (event) => {
+  event.preventDefault();
+});
+
+document.addEventListener("dragstart", (event) => {
+  event.preventDefault();
+});
+
+document.addEventListener("contextmenu", (event) => {
+  event.preventDefault();
+});
+
 boardElement.addEventListener("click", (event) => {
   const tile = (event.target as HTMLElement).closest<HTMLButtonElement>(".tile");
 
@@ -310,6 +322,10 @@ boardElement.addEventListener("pointerdown", (event) => {
   }
 
   const source = getPointerMoveSource(event);
+
+  if (source === "touch" && state.mode === "move") {
+    event.preventDefault();
+  }
 
   pointerStart = {
     id: event.pointerId,
