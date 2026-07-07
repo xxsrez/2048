@@ -1,6 +1,6 @@
 # 2048 Local
 
-Local 2048 game inspired by the original play2048.co experience. This build keeps the classic 4x4 board and adds three helpers: undo, swap two occupied tiles, and delete one occupied tile.
+Local 2048 game inspired by the original play2048.co experience. This build keeps the classic 4x4 board and adds three helpers: undo, swap two occupied tiles, and delete every tile matching one selected value.
 
 ## Commands
 
@@ -27,7 +27,10 @@ The production start command serves the built `dist` folder on `$PORT`, defaulti
 
 ## Documentation
 
-- [Gameplay](docs/gameplay.md)
+- [Documentation index](docs/README.md)
+- [Project overview](docs/overview.md)
 - [Architecture](docs/architecture.md)
-- [Attribution](docs/attribution.md)
-- [Project memory](docs/project-memory.md)
+- [Project structure](docs/project-structure.md)
+- [Gameplay guide](docs/guides/gameplay/README.md)
+- [Development guide](docs/guides/development/README.md)
+- [Attribution](docs/reference/attribution.md)

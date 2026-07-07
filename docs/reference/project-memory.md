@@ -9,3 +9,5 @@ Project-local memory was initialized for this project under the custom Codex mem
 The current entry records the baseline product scope: classic local 4x4 2048, inspired by play2048.co, with undo, swap 2, and delete helpers.
 
 This memory is intentionally not part of the git repository.
+
+Use checked-in docs and source files as the authority for current code behavior. Treat project memory as collaboration context that may become stale.

@@ -1,4 +1,4 @@
-# Gameplay
+# Gameplay Guide
 
 ## Core Mode
 
@@ -26,6 +26,22 @@ The helpers are intentionally direct and do not spawn new tiles. They start with
 
 Helpers save history first, so they can be undone.
 
+## Input
+
+- Arrow keys and WASD move the board.
+- Touch swipes move the board on mobile.
+- Directional input during a slide is queued and replayed after the current animation settles.
+- Clicking an empty cell during helper selection does not spend a charge.
+- Clicking the same selected tile twice during Swap 2 clears the current swap selection.
+
 ## Persistence
 
 The current board, score, helper uses, keep-playing state, and undo history are saved in `localStorage`. Helper uses are also mirrored in a dedicated storage key so refreshes and older saved games keep the charges stable. Refreshing the page restores the in-progress game. New Game starts a fresh saved game with zero helper uses.
+
+## Game-End Behavior
+
+- Reaching 2048 shows a win overlay.
+- Keep allows play to continue past 2048.
+- A blocked board with no legal moves shows game over.
+- Game over keeps Restart available.
+- Game over also offers Undo when an Undo charge and history snapshot are available.
