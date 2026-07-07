@@ -10,9 +10,11 @@ npm run dev
 npm test
 npm run test:e2e
 npm run build
+npm start
 ```
 
 The dev server is configured for `http://127.0.0.1:5173`.
+The production start command serves the built `dist` folder on `$PORT`, defaulting to `4173` locally.
 
 ## Gameplay
 

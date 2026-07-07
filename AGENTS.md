@@ -10,6 +10,7 @@ This is a local Vite + TypeScript implementation of 2048 with a 4x4 board and th
 - Start dev server: `npm run dev`
 - Run tests: `npm test`
 - Run production build: `npm run build`
+- Start production server: `npm start`
 
 ## Working Notes
 
