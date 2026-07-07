@@ -489,11 +489,11 @@ function handleCellClick(position: Position): void {
   }
 
   if (state.mode === "delete") {
+    const deletedValue = state.board[position.row][position.col];
+
     pushHistory();
     state.board = deleteTile(state.board, position);
-    state.tiles = state.tiles.filter(
-      (tile) => tile.row !== position.row || tile.col !== position.col,
-    );
+    state.tiles = deleteRenderTiles(state.tiles, deletedValue);
     state.helperCharges = consumeHelperCharge(state.helperCharges, "delete");
     state.keepPlaying = state.keepPlaying && getLargestTile(state.board) >= 2048;
     state.mode = "move";
@@ -979,6 +979,17 @@ function swapRenderTiles(
 
     return { ...tile, isNew: false, isMerged: false, isGhost: false };
   });
+}
+
+function deleteRenderTiles(tiles: RenderTile[], deletedValue: number): RenderTile[] {
+  return tiles
+    .filter((tile) => tile.value !== deletedValue)
+    .map((tile) => ({
+      ...tile,
+      isNew: false,
+      isMerged: false,
+      isGhost: false,
+    }));
 }
 
 function syncTileMetrics(): void {

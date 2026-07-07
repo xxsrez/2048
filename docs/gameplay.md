@@ -22,7 +22,7 @@ The helpers are intentionally direct and do not spawn new tiles. They start with
 - Making a 512 tile adds one Delete use.
 - Undo restores the previous board, score, and win/continue state, then spends one Undo use.
 - Swap 2 enters a selection mode, then swaps two occupied cells and spends one Swap 2 use.
-- Delete enters a selection mode, then clears one occupied cell and spends one Delete use.
+- Delete enters a selection mode, then clears every tile matching the selected tile value and spends one Delete use.
 
 Helpers save history first, so they can be undone.
 

@@ -21,7 +21,7 @@ The dev server is configured for `http://127.0.0.1:5173`.
 - A new 2 or 4 tile appears after each valid move.
 - Helpers start with zero uses and can hold up to two uses each.
 - Making a 128 tile adds one Undo use, making 256 adds one Swap 2 use, and making 512 adds one Delete use.
-- Undo restores the previous board and score, Swap 2 swaps two occupied cells, and Delete removes one occupied tile.
+- Undo restores the previous board and score, Swap 2 swaps two occupied cells, and Delete removes every tile matching the selected value.
 
 ## Documentation
 

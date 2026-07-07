@@ -83,8 +83,8 @@ describe("2048 engine", () => {
 
   it("supports swap and delete helpers", () => {
     const board: Board = [
-      [2, 4, 0, 0],
-      [0, 0, 0, 0],
+      [2, 4, 0, 4],
+      [0, 4, 0, 0],
       [0, 0, 0, 0],
       [0, 0, 0, 0],
     ];
@@ -92,6 +92,11 @@ describe("2048 engine", () => {
     const deleted = deleteTile(swapped, { row: 0, col: 0 });
 
     expect(swapped[0].slice(0, 2)).toEqual([4, 2]);
-    expect(deleted[0].slice(0, 2)).toEqual([0, 2]);
+    expect(deleted).toEqual([
+      [0, 2, 0, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+    ]);
   });
 });

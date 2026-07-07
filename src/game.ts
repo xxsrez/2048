@@ -225,6 +225,19 @@ export function swapTiles(board: Board, first: Position, second: Position): Boar
 
 export function deleteTile(board: Board, position: Position): Board {
   const nextBoard = cloneBoard(board);
-  nextBoard[position.row][position.col] = 0;
+  const selectedValue = nextBoard[position.row]?.[position.col] ?? 0;
+
+  if (selectedValue === 0) {
+    return nextBoard;
+  }
+
+  nextBoard.forEach((row, rowIndex) => {
+    row.forEach((value, colIndex) => {
+      if (value === selectedValue) {
+        nextBoard[rowIndex][colIndex] = 0;
+      }
+    });
+  });
+
   return nextBoard;
 }

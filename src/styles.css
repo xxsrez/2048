@@ -322,6 +322,11 @@ h1 {
   z-index: 20;
 }
 
+.board[data-mode="swap"] .tile.is-merged,
+.board[data-mode="delete"] .tile.is-merged {
+  pointer-events: auto;
+}
+
 .tile.is-new .tile-inner {
   animation: tile-appear 200ms ease 100ms both;
 }

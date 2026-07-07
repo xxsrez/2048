@@ -158,23 +158,33 @@ try {
 
   await setSavedGame(page, {
     board: [
-      [256, 256, 2, 0],
+      [256, 256, 512, 0],
       [0, 0, 0, 0],
       [0, 0, 0, 0],
       [0, 0, 0, 0],
     ],
   });
   await page.keyboard.press("ArrowLeft");
-  await page.waitForTimeout(200);
+  await page.waitForTimeout(150);
   await expectHelperCounts(page, { undo: 0, swap: 0, delete: 1 });
-  const tilesBeforeDelete = await page.locator(".tile").count();
+  const tilesBeforeDelete = await collectTiles(page);
+  const matchingTilesBeforeDelete = tilesBeforeDelete.filter((tile) => tile.value === "512");
+
+  if (matchingTilesBeforeDelete.length !== 2) {
+    throw new Error(`Expected two 512 tiles before delete, got ${JSON.stringify(tilesBeforeDelete)}`);
+  }
+
   await page.locator("#delete").click();
-  await page.locator(".tile").first().click();
+  await clickLocatorCenter(page, page.locator(".tile", { hasText: "512" }).first());
   await expectHelperCounts(page, { undo: 0, swap: 0, delete: 0 });
 
-  const tilesAfterDelete = await page.locator(".tile").count();
-  if (tilesAfterDelete !== tilesBeforeDelete - 1) {
-    throw new Error(`Unexpected tile count after charged delete flow: ${tilesAfterDelete}`);
+  const tilesAfterDelete = await collectTiles(page);
+  if (tilesAfterDelete.some((tile) => tile.value === "512")) {
+    throw new Error(`Expected delete to remove every matching 512 tile, got ${JSON.stringify(tilesAfterDelete)}`);
+  }
+
+  if (tilesAfterDelete.length !== tilesBeforeDelete.length - matchingTilesBeforeDelete.length) {
+    throw new Error(`Unexpected tile count after charged delete flow: ${JSON.stringify(tilesAfterDelete)}`);
   }
 
   await setSavedGame(page, {
@@ -344,6 +354,16 @@ async function collectTiles(page) {
         ),
       ),
   );
+}
+
+async function clickLocatorCenter(page, locator) {
+  const box = await locator.boundingBox();
+
+  if (!box) {
+    throw new Error("Could not find a clickable tile bounding box.");
+  }
+
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 }
 
 async function setSavedGame(page, game) {
