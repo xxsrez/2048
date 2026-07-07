@@ -336,6 +336,89 @@ try {
   if (mobileScreenshot.size < 10_000) {
     throw new Error(`Mobile screenshot looks too small: ${mobileScreenshot.size} bytes`);
   }
+
+  await setSavedGame(page, {
+    board: [
+      [2, 0, 0, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+    ],
+  });
+  const touchStart = await getBoardCenter(page);
+  await dispatchBoardPointer(page, "pointerdown", {
+    pointerId: 41,
+    pointerType: "touch",
+    clientX: touchStart.x,
+    clientY: touchStart.y,
+  });
+  await dispatchBoardPointer(page, "pointermove", {
+    pointerId: 41,
+    pointerType: "touch",
+    clientX: touchStart.x,
+    clientY: touchStart.y + 20,
+  });
+  await page.waitForTimeout(20);
+
+  const touchTurnsAfterMove = await page.locator("#turns-count").textContent();
+  if (touchTurnsAfterMove?.trim() !== "1") {
+    throw new Error(
+      `Expected short touch swipe to move before pointerup, got turns=${touchTurnsAfterMove}`,
+    );
+  }
+
+  await dispatchBoardPointer(page, "pointerup", {
+    pointerId: 41,
+    pointerType: "touch",
+    clientX: touchStart.x,
+    clientY: touchStart.y + 20,
+  });
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await setSavedGame(page, {
+    board: [
+      [2, 0, 0, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+    ],
+  });
+  const mouseStart = await getBoardCenter(page);
+  await dispatchBoardPointer(page, "pointerdown", {
+    pointerId: 42,
+    pointerType: "mouse",
+    clientX: mouseStart.x,
+    clientY: mouseStart.y,
+  });
+  await dispatchBoardPointer(page, "pointermove", {
+    pointerId: 42,
+    pointerType: "mouse",
+    clientX: mouseStart.x,
+    clientY: mouseStart.y + 60,
+  });
+  await page.waitForTimeout(20);
+
+  const mouseTurnsAfterMove = await page.locator("#turns-count").textContent();
+  if (mouseTurnsAfterMove?.trim() !== "0") {
+    throw new Error(
+      `Expected desktop pointer drag to wait for pointerup, got turns=${mouseTurnsAfterMove}`,
+    );
+  }
+
+  await dispatchBoardPointer(page, "pointerup", {
+    pointerId: 42,
+    pointerType: "mouse",
+    clientX: mouseStart.x,
+    clientY: mouseStart.y + 60,
+  });
+  await page.waitForTimeout(20);
+
+  const mouseTurnsAfterUp = await page.locator("#turns-count").textContent();
+  if (mouseTurnsAfterUp?.trim() !== "1") {
+    throw new Error(
+      `Expected desktop pointer drag to move on pointerup, got turns=${mouseTurnsAfterUp}`,
+    );
+  }
 } finally {
   await browser.close();
 }
@@ -364,6 +447,28 @@ async function clickLocatorCenter(page, locator) {
   }
 
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+}
+
+async function getBoardCenter(page) {
+  const box = await page.locator("#board").boundingBox();
+
+  if (!box) {
+    throw new Error("Could not find board bounding box.");
+  }
+
+  return {
+    x: box.x + box.width / 2,
+    y: box.y + box.height / 2,
+  };
+}
+
+async function dispatchBoardPointer(page, type, details) {
+  await page.dispatchEvent("#board", type, {
+    bubbles: true,
+    cancelable: true,
+    isPrimary: true,
+    ...details,
+  });
 }
 
 async function setSavedGame(page, game) {

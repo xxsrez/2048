@@ -48,6 +48,21 @@ interface RenderTile {
   isGhost: boolean;
 }
 
+type MoveSource = "keyboard" | "pointer" | "touch";
+
+interface PointerStart {
+  id: number;
+  x: number;
+  y: number;
+  source: MoveSource;
+  threshold: number;
+}
+
+interface QueuedMove {
+  direction: Direction;
+  source: MoveSource;
+}
+
 interface RuntimeState {
   board: Board;
   tiles: RenderTile[];
@@ -84,8 +99,10 @@ const HELPER_CHARGES_KEY = "local-2048-helper-charges";
 const HISTORY_LIMIT = 100;
 const MAX_QUEUED_MOVES = 8;
 const MOVE_SETTLE_MS = 120;
+const TOUCH_MOVE_SETTLE_MS = 100;
 const ANIMATION_RESET_MS = 260;
 const SWIPE_THRESHOLD = 36;
+const TOUCH_SWIPE_THRESHOLD = 10;
 
 const app = document.querySelector<HTMLDivElement>("#app");
 
@@ -224,8 +241,8 @@ const helperChargeMeters: Record<HelperAction, HTMLElement> = {
   delete: getElement<HTMLElement>("delete-charge-meter"),
 };
 
-let pointerStart: { x: number; y: number } | null = null;
-let queuedMoves: Direction[] = [];
+let pointerStart: PointerStart | null = null;
+let queuedMoves: QueuedMove[] = [];
 let nextTileId = 1;
 let moveAnimationTimer: number | undefined;
 let animationCleanupTimer: number | undefined;
@@ -288,31 +305,73 @@ new ResizeObserver(() => {
 }).observe(tileLayerElement);
 
 boardElement.addEventListener("pointerdown", (event) => {
-  pointerStart = { x: event.clientX, y: event.clientY };
+  if (!event.isPrimary) {
+    return;
+  }
+
+  const source = getPointerMoveSource(event);
+
+  pointerStart = {
+    id: event.pointerId,
+    x: event.clientX,
+    y: event.clientY,
+    source,
+    threshold: getSwipeThreshold(source),
+  };
+
+  if (state.mode === "move") {
+    try {
+      boardElement.setPointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture is a progressive enhancement for swipes leaving the board.
+    }
+  }
+});
+
+boardElement.addEventListener("pointermove", (event) => {
+  if (
+    !pointerStart ||
+    pointerStart.source !== "touch" ||
+    pointerStart.id !== event.pointerId
+  ) {
+    return;
+  }
+
+  const direction = getSwipeDirection(
+    pointerStart,
+    event.clientX,
+    event.clientY,
+  );
+
+  if (!direction) {
+    return;
+  }
+
+  event.preventDefault();
+  requestMove(direction, "touch");
+  clearPointerStart(event.pointerId);
 });
 
 boardElement.addEventListener("pointerup", (event) => {
-  if (!pointerStart) {
+  if (!pointerStart || pointerStart.id !== event.pointerId) {
     return;
   }
 
-  const diffX = event.clientX - pointerStart.x;
-  const diffY = event.clientY - pointerStart.y;
-  pointerStart = null;
+  const start = pointerStart;
+  const direction = getSwipeDirection(start, event.clientX, event.clientY);
+  clearPointerStart(event.pointerId);
 
-  if (Math.max(Math.abs(diffX), Math.abs(diffY)) < SWIPE_THRESHOLD) {
+  if (!direction) {
     return;
   }
 
-  requestMove(
-    Math.abs(diffX) > Math.abs(diffY)
-      ? diffX > 0
-        ? "right"
-        : "left"
-      : diffY > 0
-        ? "down"
-        : "up",
-  );
+  requestMove(direction, start.source);
+});
+
+boardElement.addEventListener("pointercancel", (event) => {
+  if (pointerStart?.id === event.pointerId) {
+    clearPointerStart(event.pointerId);
+  }
 });
 
 window.addEventListener("keydown", (event) => {
@@ -337,7 +396,7 @@ window.addEventListener("keydown", (event) => {
   }
 
   event.preventDefault();
-  requestMove(direction);
+  requestMove(direction, "keyboard");
 });
 
 function getElement<T extends HTMLElement>(id: string): T {
@@ -531,9 +590,9 @@ function handleCellClick(position: Position): void {
   render();
 }
 
-function move(direction: Direction): void {
+function move(direction: Direction, source: MoveSource = "keyboard"): void {
   if (state.isAnimating) {
-    queueMove(direction);
+    queueMove(direction, source);
     return;
   }
 
@@ -581,24 +640,27 @@ function move(direction: Direction): void {
     state.isAnimating = false;
     render();
     playQueuedMove();
-  }, MOVE_SETTLE_MS);
+  }, getMoveSettleMs(source));
 }
 
-function requestMove(direction: Direction): void {
+function requestMove(
+  direction: Direction,
+  source: MoveSource = "keyboard",
+): void {
   if (state.isAnimating) {
-    queueMove(direction);
+    queueMove(direction, source);
     return;
   }
 
-  move(direction);
+  move(direction, source);
 }
 
-function queueMove(direction: Direction): void {
+function queueMove(direction: Direction, source: MoveSource): void {
   if (queuedMoves.length >= MAX_QUEUED_MOVES) {
     queuedMoves.shift();
   }
 
-  queuedMoves.push(direction);
+  queuedMoves.push({ direction, source });
 }
 
 function playQueuedMove(): void {
@@ -606,16 +668,61 @@ function playQueuedMove(): void {
     return;
   }
 
-  const direction = queuedMoves.shift();
+  const queuedMove = queuedMoves.shift();
 
-  if (!direction) {
+  if (!queuedMove) {
     return;
   }
 
-  move(direction);
+  move(queuedMove.direction, queuedMove.source);
 
   if (!state.isAnimating && queuedMoves.length > 0) {
     window.setTimeout(playQueuedMove, 0);
+  }
+}
+
+function getPointerMoveSource(event: PointerEvent): MoveSource {
+  return event.pointerType === "touch" ? "touch" : "pointer";
+}
+
+function getSwipeThreshold(source: MoveSource): number {
+  return source === "touch" ? TOUCH_SWIPE_THRESHOLD : SWIPE_THRESHOLD;
+}
+
+function getMoveSettleMs(source: MoveSource): number {
+  return source === "touch" ? TOUCH_MOVE_SETTLE_MS : MOVE_SETTLE_MS;
+}
+
+function getSwipeDirection(
+  start: PointerStart,
+  clientX: number,
+  clientY: number,
+): Direction | null {
+  const diffX = clientX - start.x;
+  const diffY = clientY - start.y;
+
+  if (Math.max(Math.abs(diffX), Math.abs(diffY)) < start.threshold) {
+    return null;
+  }
+
+  return Math.abs(diffX) > Math.abs(diffY)
+    ? diffX > 0
+      ? "right"
+      : "left"
+    : diffY > 0
+      ? "down"
+      : "up";
+}
+
+function clearPointerStart(pointerId: number): void {
+  pointerStart = null;
+
+  try {
+    if (boardElement.hasPointerCapture(pointerId)) {
+      boardElement.releasePointerCapture(pointerId);
+    }
+  } catch {
+    // Ignore browsers that reject release after a canceled pointer sequence.
   }
 }
 
