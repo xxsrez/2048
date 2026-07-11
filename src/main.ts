@@ -5,6 +5,7 @@ import {
   Direction,
   GRID_SIZE,
   Position,
+  type SpawnOutcome,
   cloneBoard,
   countOccupiedCells,
   createInitialBoard,
@@ -36,6 +37,12 @@ interface Snapshot {
   board: Board;
   score: number;
   keepPlaying: boolean;
+  move?: RecordedMove;
+}
+
+interface RecordedMove {
+  direction: Direction;
+  spawn: SpawnOutcome;
 }
 
 interface RenderTile {
@@ -71,6 +78,7 @@ interface RuntimeState {
   helperCharges: HelperCharges;
   keepPlaying: boolean;
   history: Snapshot[];
+  rerollMove: RecordedMove | null;
   mode: HelperMode;
   selection: Position[];
   isAnimating: boolean;
@@ -86,6 +94,7 @@ interface PersistedGame {
   helperCharges: HelperCharges;
   keepPlaying: boolean;
   history: Snapshot[];
+  rerollMove?: RecordedMove | null;
 }
 
 interface MoveAnimation {
@@ -267,6 +276,7 @@ const state: RuntimeState = {
   helperCharges: savedGame?.helperCharges ?? createEmptyHelperCharges(),
   keepPlaying: savedGame?.keepPlaying ?? false,
   history: savedGame?.history ?? [],
+  rerollMove: savedGame?.rerollMove ?? null,
   mode: "move",
   selection: [],
   isAnimating: false,
@@ -425,16 +435,17 @@ function getElement<T extends HTMLElement>(id: string): T {
   return element as T;
 }
 
-function snapshot(): Snapshot {
+function snapshot(move?: RecordedMove): Snapshot {
   return {
     board: cloneBoard(state.board),
     score: state.score,
     keepPlaying: state.keepPlaying,
+    ...(move ? { move } : {}),
   };
 }
 
-function pushHistory(): void {
-  state.history.push(snapshot());
+function pushHistory(move?: RecordedMove): void {
+  state.history.push(snapshot(move));
 
   if (state.history.length > HISTORY_LIMIT) {
     state.history.shift();
@@ -450,6 +461,7 @@ function startNewGame(): void {
   state.helperCharges = createEmptyHelperCharges();
   state.keepPlaying = false;
   state.history = [];
+  state.rerollMove = null;
   state.mode = "move";
   state.selection = [];
   state.isAnimating = false;
@@ -496,6 +508,7 @@ function undo(): void {
   state.tiles = createRenderTiles(state.board);
   state.score = previous.score;
   state.keepPlaying = previous.keepPlaying;
+  state.rerollMove = previous.move ?? null;
   state.helperCharges = consumeHelperCharge(state.helperCharges, "undo");
   state.mode = "move";
   state.selection = [];
@@ -567,6 +580,7 @@ function handleCellClick(position: Position): void {
     const deletedValue = state.board[position.row][position.col];
 
     pushHistory();
+    state.rerollMove = null;
     state.board = deleteTile(state.board, position);
     state.tiles = deleteRenderTiles(state.tiles, deletedValue);
     state.helperCharges = consumeHelperCharge(state.helperCharges, "delete");
@@ -596,6 +610,7 @@ function handleCellClick(position: Position): void {
   }
 
   pushHistory();
+  state.rerollMove = null;
   state.board = swapTiles(state.board, selectedPosition, position);
   state.tiles = swapRenderTiles(state.tiles, selectedPosition, position);
   state.helperCharges = consumeHelperCharge(state.helperCharges, "swap");
@@ -632,8 +647,17 @@ function move(direction: Direction, source: MoveSource = "keyboard"): void {
     return;
   }
 
-  pushHistory();
-  const spawn = spawnTileWithPosition(result.board);
+  const excludedSpawn =
+    state.rerollMove?.direction === direction
+      ? state.rerollMove.spawn
+      : undefined;
+  const spawn = spawnTileWithPosition(result.board, Math.random, excludedSpawn);
+  const recordedMove =
+    spawn.position && spawn.value
+      ? { direction, spawn: { position: spawn.position, value: spawn.value } }
+      : undefined;
+  pushHistory(recordedMove);
+  state.rerollMove = null;
   const moveAnimation = createMoveAnimation(state.tiles, direction, spawn);
   state.helperCharges = awardHelperCharges(
     state.helperCharges,
@@ -1184,7 +1208,9 @@ function persistGameState(): void {
       board: cloneBoard(item.board),
       score: item.score,
       keepPlaying: item.keepPlaying,
+      ...(item.move ? { move: item.move } : {}),
     })),
+    rerollMove: state.rerollMove,
   };
 
   try {
@@ -1221,6 +1247,7 @@ function parsePersistedGame(value: unknown): PersistedGame | null {
   const score = parseNonNegativeInteger(value.score);
   const bestScore = parseNonNegativeInteger(value.bestScore);
   const helperCharges = parsePersistedHelperCharges(value.helperCharges, board);
+  const rerollMove = parseRecordedMove(value.rerollMove);
 
   if (
     !board ||
@@ -1241,6 +1268,7 @@ function parsePersistedGame(value: unknown): PersistedGame | null {
     helperCharges,
     keepPlaying: value.keepPlaying,
     history,
+    rerollMove,
   };
 }
 
@@ -1285,6 +1313,7 @@ function parseHistory(value: unknown): Snapshot[] | null {
 
     const board = parseBoard(item.board);
     const score = parseNonNegativeInteger(item.score);
+    const move = parseRecordedMove(item.move);
 
     if (!board || score === null) {
       return null;
@@ -1294,6 +1323,7 @@ function parseHistory(value: unknown): Snapshot[] | null {
       board,
       score,
       keepPlaying: item.keepPlaying,
+      ...(move ? { move } : {}),
     };
   });
 
@@ -1302,6 +1332,38 @@ function parseHistory(value: unknown): Snapshot[] | null {
   }
 
   return snapshots as Snapshot[];
+}
+
+function parseRecordedMove(value: unknown): RecordedMove | null {
+  if (
+    !isRecord(value) ||
+    !["up", "down", "left", "right"].includes(String(value.direction)) ||
+    !isRecord(value.spawn) ||
+    !isRecord(value.spawn.position)
+  ) {
+    return null;
+  }
+
+  const row = Number(value.spawn.position.row);
+  const col = Number(value.spawn.position.col);
+  const spawnValue = Number(value.spawn.value);
+
+  if (
+    !Number.isInteger(row) ||
+    !Number.isInteger(col) ||
+    row < 0 ||
+    row >= GRID_SIZE ||
+    col < 0 ||
+    col >= GRID_SIZE ||
+    (spawnValue !== 2 && spawnValue !== 4)
+  ) {
+    return null;
+  }
+
+  return {
+    direction: value.direction as Direction,
+    spawn: { position: { row, col }, value: spawnValue },
+  };
 }
 
 function parseBoard(value: unknown): Board | null {

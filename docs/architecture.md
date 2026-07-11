@@ -42,7 +42,7 @@ The runtime state tracks:
 - Score and best score.
 - Helper charges.
 - Keep-playing state after reaching 2048.
-- Undo history.
+- Undo history, including the random spawn produced by each move so an immediately repeated move can reroll it.
 - Active helper mode and selected cells.
 - Animation and queued-move state.
 

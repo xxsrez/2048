@@ -142,6 +142,35 @@ try {
 
   await setSavedGame(page, {
     board: [
+      [128, 128, 0, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+    ],
+    helperCharges: { undo: 2, swap: 0, delete: 0 },
+  });
+  await page.evaluate(() => {
+    window.localStorage.setItem(
+      "__test_random_values",
+      JSON.stringify([0, 0, 0, 0, 0.5, 0]),
+    );
+  });
+  await page.keyboard.press("ArrowLeft");
+  await page.waitForTimeout(200);
+  const firstRandomizedMove = await collectTiles(page);
+  await page.locator("#undo").click();
+  await page.keyboard.press("ArrowLeft");
+  await page.waitForTimeout(200);
+  const repeatedRandomizedMove = await collectTiles(page);
+
+  if (JSON.stringify(repeatedRandomizedMove) === JSON.stringify(firstRandomizedMove)) {
+    throw new Error(
+      `Expected the repeated move after undo to reroll its spawn, got ${JSON.stringify(repeatedRandomizedMove)}`,
+    );
+  }
+
+  await setSavedGame(page, {
+    board: [
       [128, 128, 2, 0],
       [0, 0, 0, 0],
       [0, 0, 0, 0],

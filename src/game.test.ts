@@ -8,6 +8,7 @@ import {
   moveBoard,
   slideLine,
   spawnTile,
+  spawnTileWithPosition,
   swapTiles,
 } from "./game";
 
@@ -72,6 +73,22 @@ describe("2048 engine", () => {
     );
 
     expect(board[0][1]).toBe(4);
+  });
+
+  it("rerolls an excluded spawn outcome", () => {
+    const spawn = spawnTileWithPosition(
+      [
+        [2, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+      ],
+      sequence([0, 0, 0.5, 0]),
+      { position: { row: 0, col: 1 }, value: 2 },
+    );
+
+    expect(spawn.position).toEqual({ row: 2, col: 0 });
+    expect(spawn.value).toBe(2);
   });
 
   it("creates an initial board with two tiles", () => {
