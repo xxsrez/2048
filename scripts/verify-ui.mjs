@@ -501,6 +501,8 @@ async function dispatchBoardPointer(page, type, details) {
 }
 
 async function setSavedGame(page, game) {
+  await page.waitForTimeout(300);
+
   const mainFrame = page.mainFrame();
   const reloaded = page.waitForEvent(
     "framenavigated",
