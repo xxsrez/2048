@@ -501,6 +501,12 @@ async function dispatchBoardPointer(page, type, details) {
 }
 
 async function setSavedGame(page, game) {
+  const mainFrame = page.mainFrame();
+  const reloaded = page.waitForEvent(
+    "framenavigated",
+    (frame) => frame === mainFrame,
+  );
+
   await page.evaluate((nextGame) => {
     window.localStorage.setItem("__test_random_values", JSON.stringify([0, 0, 0, 0]));
     window.localStorage.setItem(
@@ -521,9 +527,11 @@ async function setSavedGame(page, game) {
         ...nextGame,
       }),
     );
+    window.location.reload();
   }, game);
 
-  await page.reload({ waitUntil: "networkidle" });
+  await reloaded;
+  await page.waitForLoadState("networkidle");
   await page.getByRole("heading", { name: "2048" }).waitFor();
 }
 
