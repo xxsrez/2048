@@ -1,6 +1,12 @@
 import { createIcons, icons } from "lucide";
 import "./styles.css";
 import {
+  BEST_SCORE_BACKUP_KEY,
+  BEST_SCORE_KEY,
+  preserveBestScore,
+  readBestScore,
+} from "./best-score";
+import {
   Board,
   Direction,
   GRID_SIZE,
@@ -102,7 +108,6 @@ interface MoveAnimation {
   settledTiles: RenderTile[];
 }
 
-const BEST_SCORE_KEY = "local-2048-best-score";
 const GAME_STATE_KEY = "local-2048-game-state";
 const HELPER_CHARGES_KEY = "local-2048-helper-charges";
 const HISTORY_LIMIT = 100;
@@ -263,7 +268,7 @@ let tileMetrics = {
 const savedGame = readGameState();
 const initialBoard = savedGame?.board ?? createInitialBoard();
 const initialBestScore = Math.max(
-  readBestScore(),
+  readBestScore(window.localStorage),
   savedGame?.bestScore ?? 0,
   savedGame?.score ?? 0,
 );
@@ -287,6 +292,25 @@ const state: RuntimeState = {
 renderGrid();
 syncTileMetrics();
 render();
+
+window.addEventListener("storage", (event) => {
+  if (
+    event.key !== BEST_SCORE_KEY &&
+    event.key !== BEST_SCORE_BACKUP_KEY
+  ) {
+    return;
+  }
+
+  const bestScore = preserveBestScore(
+    window.localStorage,
+    Math.max(state.bestScore, state.score),
+  );
+
+  if (bestScore > state.bestScore) {
+    state.bestScore = bestScore;
+    bestScoreElement.textContent = String(bestScore);
+  }
+});
 
 newGameButton.addEventListener("click", startNewGame);
 restartButton.addEventListener("click", startNewGame);
@@ -672,7 +696,6 @@ function move(direction: Direction, source: MoveSource = "keyboard"): void {
   state.bestScore = Math.max(state.bestScore, state.score);
   state.lastGain = result.scoreGain;
   state.message = result.scoreGain > 0 ? `+${result.scoreGain}` : "Moved";
-  writeBestScore(state.bestScore);
   render();
 
   moveAnimationTimer = window.setTimeout(() => {
@@ -769,6 +792,10 @@ function clearPointerStart(pointerId: number): void {
 function render(): void {
   const status = getGameStatus(state.board, state.keepPlaying);
   const occupiedCells = countOccupiedCells(state.board);
+  state.bestScore = preserveBestScore(
+    window.localStorage,
+    Math.max(state.bestScore, state.score),
+  );
 
   scoreElement.textContent = String(state.score);
   bestScoreElement.textContent = String(state.bestScore);
@@ -1179,23 +1206,6 @@ function clearAnimationTimers(): void {
   state.isAnimating = false;
 }
 
-function readBestScore(): number {
-  try {
-    const stored = Number(window.localStorage.getItem(BEST_SCORE_KEY));
-    return Number.isFinite(stored) ? stored : 0;
-  } catch {
-    return 0;
-  }
-}
-
-function writeBestScore(bestScore: number): void {
-  try {
-    window.localStorage.setItem(BEST_SCORE_KEY, String(bestScore));
-  } catch {
-    window.console.warn("Could not persist best score.");
-  }
-}
-
 function persistGameState(): void {
   const gameState: PersistedGame = {
     version: 1,
@@ -1216,7 +1226,6 @@ function persistGameState(): void {
   try {
     window.localStorage.setItem(GAME_STATE_KEY, JSON.stringify(gameState));
     writeHelperCharges(state.helperCharges);
-    writeBestScore(state.bestScore);
   } catch {
     window.console.warn("Could not persist game state.");
   }

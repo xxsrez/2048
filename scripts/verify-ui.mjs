@@ -34,6 +34,7 @@ try {
   await page.reload({ waitUntil: "networkidle" });
   await page.getByRole("heading", { name: "2048" }).waitFor();
   await assertFavicon(page);
+  await assertBestScoreCannotRegressAcrossTabs(browser, url);
 
   const initialTiles = await page.locator(".tile").count();
   if (initialTiles !== 2) {
@@ -466,6 +467,124 @@ async function collectTiles(page) {
         ),
       ),
   );
+}
+
+async function assertBestScoreCannotRegressAcrossTabs(browser, appUrl) {
+  const context = await browser.newContext();
+  const stalePage = await context.newPage();
+
+  try {
+    await stalePage.goto(appUrl, { waitUntil: "networkidle" });
+    await stalePage.evaluate(() => {
+      const gameState = {
+        version: 1,
+        board: [
+          [2, 0, 0, 0],
+          [0, 0, 0, 0],
+          [0, 0, 0, 0],
+          [0, 0, 0, 2],
+        ],
+        score: 32000,
+        bestScore: 32000,
+        helperCharges: { undo: 0, swap: 0, delete: 0 },
+        keepPlaying: false,
+        history: [],
+        rerollMove: null,
+      };
+
+      window.localStorage.clear();
+      window.localStorage.setItem("local-2048-best-score", "32000");
+      window.localStorage.setItem(
+        "local-2048-game-state",
+        JSON.stringify(gameState),
+      );
+    });
+    await stalePage.reload({ waitUntil: "networkidle" });
+
+    const recordPage = await context.newPage();
+    await recordPage.goto(appUrl, { waitUntil: "networkidle" });
+    await recordPage.evaluate(() => {
+      const gameState = JSON.parse(
+        window.localStorage.getItem("local-2048-game-state"),
+      );
+      gameState.score = 1700000;
+      gameState.bestScore = 1700000;
+      window.localStorage.setItem("local-2048-best-score", "1700000");
+      window.localStorage.setItem(
+        "local-2048-game-state",
+        JSON.stringify(gameState),
+      );
+    });
+    await recordPage.reload({ waitUntil: "networkidle" });
+    await recordPage
+      .locator("#best-score-value")
+      .getByText("1700000", { exact: true })
+      .waitFor();
+
+    await stalePage.locator("#new-game").click();
+
+    const scoresAfterStaleWrite = await stalePage.evaluate(() => {
+      const gameState = JSON.parse(
+        window.localStorage.getItem("local-2048-game-state"),
+      );
+
+      return {
+        legacy: window.localStorage.getItem("local-2048-best-score"),
+        backup: window.localStorage.getItem("local-2048-best-score-v2"),
+        game: gameState.bestScore,
+      };
+    });
+
+    if (
+      scoresAfterStaleWrite.legacy !== "1700000" ||
+      scoresAfterStaleWrite.backup !== "1700000" ||
+      scoresAfterStaleWrite.game !== 1700000
+    ) {
+      throw new Error(
+        `A stale tab lowered the best score: ${JSON.stringify(scoresAfterStaleWrite)}`,
+      );
+    }
+
+    await recordPage.close();
+    await stalePage.evaluate(() => {
+      const gameState = JSON.parse(
+        window.localStorage.getItem("local-2048-game-state"),
+      );
+      gameState.bestScore = 32000;
+      window.localStorage.setItem("local-2048-best-score", "32000");
+      window.localStorage.setItem(
+        "local-2048-game-state",
+        JSON.stringify(gameState),
+      );
+    });
+    await stalePage.reload({ waitUntil: "networkidle" });
+
+    const recoveredScores = await stalePage.evaluate(() => {
+      const gameState = JSON.parse(
+        window.localStorage.getItem("local-2048-game-state"),
+      );
+
+      return {
+        shown: document.querySelector("#best-score-value")?.textContent,
+        legacy: window.localStorage.getItem("local-2048-best-score"),
+        backup: window.localStorage.getItem("local-2048-best-score-v2"),
+        game: gameState.bestScore,
+      };
+    });
+
+    if (
+      recoveredScores.shown !== "1700000" ||
+      recoveredScores.legacy !== "1700000" ||
+      recoveredScores.backup !== "1700000" ||
+      recoveredScores.game !== 1700000
+    ) {
+      throw new Error(
+        `The protected best score was not recovered: ${JSON.stringify(recoveredScores)}`,
+      );
+    }
+  } finally {
+    await context.close();
+  }
 }
 
 async function clickLocatorCenter(page, locator) {
