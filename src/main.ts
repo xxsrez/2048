@@ -301,14 +301,18 @@ window.addEventListener("storage", (event) => {
     return;
   }
 
-  const bestScore = preserveBestScore(
-    window.localStorage,
-    Math.max(state.bestScore, state.score),
-  );
+  synchronizeBestScore();
+});
 
-  if (bestScore > state.bestScore) {
-    state.bestScore = bestScore;
-    bestScoreElement.textContent = String(bestScore);
+window.addEventListener("pageshow", (event) => {
+  if (event.persisted) {
+    synchronizeBestScore();
+  }
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") {
+    synchronizeBestScore();
   }
 });
 
@@ -792,10 +796,7 @@ function clearPointerStart(pointerId: number): void {
 function render(): void {
   const status = getGameStatus(state.board, state.keepPlaying);
   const occupiedCells = countOccupiedCells(state.board);
-  state.bestScore = preserveBestScore(
-    window.localStorage,
-    Math.max(state.bestScore, state.score),
-  );
+  synchronizeBestScore();
 
   scoreElement.textContent = String(state.score);
   bestScoreElement.textContent = String(state.bestScore);
@@ -828,6 +829,14 @@ function render(): void {
   renderOverlay(status);
   persistGameState();
   scheduleAnimationCleanup();
+}
+
+function synchronizeBestScore(): void {
+  state.bestScore = preserveBestScore(
+    window.localStorage,
+    Math.max(state.bestScore, state.score),
+  );
+  bestScoreElement.textContent = String(state.bestScore);
 }
 
 function renderGrid(): void {

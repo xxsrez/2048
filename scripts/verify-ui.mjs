@@ -35,6 +35,7 @@ try {
   await page.getByRole("heading", { name: "2048" }).waitFor();
   await assertFavicon(page);
   await assertBestScoreCannotRegressAcrossTabs(browser, url);
+  await assertBestScoreRefreshesAfterPageRestore(browser, url);
 
   const initialTiles = await page.locator(".tile").count();
   if (initialTiles !== 2) {
@@ -580,6 +581,82 @@ async function assertBestScoreCannotRegressAcrossTabs(browser, appUrl) {
     ) {
       throw new Error(
         `The protected best score was not recovered: ${JSON.stringify(recoveredScores)}`,
+      );
+    }
+  } finally {
+    await context.close();
+  }
+}
+
+async function assertBestScoreRefreshesAfterPageRestore(browser, appUrl) {
+  const context = await browser.newContext();
+  const restoredPage = await context.newPage();
+
+  try {
+    await restoredPage.goto(appUrl, { waitUntil: "networkidle" });
+    await restoredPage.evaluate(() => {
+      window.localStorage.clear();
+      window.localStorage.setItem("local-2048-best-score", "500000");
+      window.localStorage.setItem(
+        "local-2048-game-state",
+        JSON.stringify({
+          version: 1,
+          board: [
+            [2, 0, 0, 0],
+            [0, 0, 0, 0],
+            [0, 0, 0, 0],
+            [0, 0, 0, 2],
+          ],
+          score: 500000,
+          bestScore: 500000,
+          helperCharges: { undo: 0, swap: 0, delete: 0 },
+          keepPlaying: false,
+          history: [],
+          rerollMove: null,
+        }),
+      );
+    });
+    await restoredPage.reload({ waitUntil: "networkidle" });
+
+    await restoredPage.evaluate(() => {
+      window.localStorage.setItem("local-2048-best-score", "1700000");
+      window.localStorage.setItem("local-2048-best-score-v2", "1700000");
+      window.dispatchEvent(
+        new PageTransitionEvent("pageshow", { persisted: true }),
+      );
+    });
+
+    const shownAfterRestore = await restoredPage
+      .locator("#best-score-value")
+      .textContent();
+
+    if (shownAfterRestore?.trim() !== "1700000") {
+      throw new Error(
+        `A restored page kept a stale best score: ${shownAfterRestore}`,
+      );
+    }
+
+    await restoredPage.locator("#new-game").click();
+
+    const storedAfterRestore = await restoredPage.evaluate(() => {
+      const gameState = JSON.parse(
+        window.localStorage.getItem("local-2048-game-state"),
+      );
+
+      return {
+        legacy: window.localStorage.getItem("local-2048-best-score"),
+        backup: window.localStorage.getItem("local-2048-best-score-v2"),
+        game: gameState.bestScore,
+      };
+    });
+
+    if (
+      storedAfterRestore.legacy !== "1700000" ||
+      storedAfterRestore.backup !== "1700000" ||
+      storedAfterRestore.game !== 1700000
+    ) {
+      throw new Error(
+        `A restored page lowered the stored record: ${JSON.stringify(storedAfterRestore)}`,
       );
     }
   } finally {

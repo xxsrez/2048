@@ -53,7 +53,7 @@ Browser storage keys:
 - `local-2048-game-state` stores the versioned active game state.
 - `local-2048-helper-charges` mirrors helper charges for older saved-game migration.
 
-Saved data is validated before restore. Invalid or incompatible data falls back to a fresh game. Legacy saved games without helper charges infer a conservative charge state from the largest tile before being rewritten in the current format. Best-score writes reconcile both score keys and never lower the stored maximum; storage events keep open tabs synchronized. Browser storage is scoped to the current origin, so the Railway and Sites addresses keep independent records.
+Saved data is validated before restore. Invalid or incompatible data falls back to a fresh game. Legacy saved games without helper charges infer a conservative charge state from the largest tile before being rewritten in the current format. Best-score writes reconcile both score keys and never lower the stored maximum; storage events keep open tabs synchronized, while `pageshow` and visibility changes refresh pages resumed from the browser's back/forward cache or suspension. Browser storage is scoped to the current origin, so the Railway and Sites addresses keep independent records.
 
 ## Animation Model
 
