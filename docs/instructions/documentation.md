@@ -7,7 +7,7 @@
 - Use `docs/project-structure.md` for the repository layout and file responsibilities.
 - Use `docs/guides/` for current user-facing or developer-facing how-to material.
 - Use `docs/instructions/` for durable documentation and workflow standards.
-- Use `docs/reference/` for licensing, attribution, project-memory notes, and stable reference material.
+- Use `docs/reference/` for licensing, attribution, and stable reference material.
 - Use `docs/design/` for historical product or component specs.
 - Use `docs/tasks/{task-name}/` only for complex investigations that need a changelog and multiple work sessions.
 - Use `docs/reports/` for completed standalone analysis summaries.

@@ -17,7 +17,6 @@ This directory is the durable project documentation for 2048 Local. Keep `README
 
 - [Documentation instructions](instructions/documentation.md) - where to put future documentation.
 - [Attribution](reference/attribution.md) - original 2048 links and icon asset licensing.
-- [Project memory](reference/project-memory.md) - local Codex project-memory convention for this repo.
 
 ## Future Work Areas
 
