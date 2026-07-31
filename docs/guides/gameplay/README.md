@@ -24,6 +24,8 @@ The helpers are intentionally direct and do not spawn new tiles. They start with
 - Repeating the same move immediately after Undo rerolls the added tile instead of reproducing the cancelled spawn.
 - Swap 2 enters a selection mode, then swaps two occupied cells and spends one Swap 2 use.
 - Delete enters a selection mode, then clears every tile matching the selected tile value and spends one Delete use.
+- Delete mode uses a muted warm outline on the helper, board, and selectable tiles while it waits for a tile value.
+- Swap 2 shows a gold selection state for the first tile, changes the prompt for the second tile, and briefly marks both swapped tiles with related but distinct completion effects.
 
 Helpers save history first, so they can be undone.
 

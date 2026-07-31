@@ -183,9 +183,17 @@ try {
   await page.waitForTimeout(200);
   await expectHelperCounts(page, { undo: 0, swap: 1, delete: 0 });
   await page.locator("#swap").click();
+  await expectArmedHelperFeedback(page, "swap", "first");
   await page.locator(".tile").nth(0).click();
+  await expectArmedHelperFeedback(page, "swap", "second");
+
+  if ((await page.locator(".tile.is-swap-first").count()) !== 1) {
+    throw new Error("Expected the first swap tile to remain visibly selected.");
+  }
+
   await page.locator(".tile").nth(1).click();
   await expectHelperCounts(page, { undo: 0, swap: 0, delete: 0 });
+  await expectSwapCompletionFeedback(page);
 
   await setSavedGame(page, {
     board: [
@@ -206,6 +214,7 @@ try {
   }
 
   await page.locator("#delete").click();
+  await expectArmedHelperFeedback(page, "delete");
   await clickLocatorCenter(page, page.locator(".tile", { hasText: "512" }).first());
   await expectHelperCounts(page, { undo: 0, swap: 0, delete: 0 });
 
@@ -672,6 +681,78 @@ async function clickLocatorCenter(page, locator) {
   }
 
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+}
+
+async function expectArmedHelperFeedback(page, helper, step) {
+  const surface = page.locator("#game-surface");
+  const button = page.locator(`#${helper}`);
+  const expectedMessage =
+    helper === "delete"
+      ? "Delete: choose a tile value"
+      : `Swap: choose ${step} tile`;
+
+  if ((await surface.getAttribute("data-helper-mode")) !== helper) {
+    throw new Error(`Expected ${helper} helper mode to be visible on the game surface.`);
+  }
+
+  if (helper === "swap" && (await surface.getAttribute("data-helper-step")) !== step) {
+    throw new Error(`Expected swap ${step} step to be visible on the game surface.`);
+  }
+
+  if ((await button.getAttribute("aria-pressed")) !== "true") {
+    throw new Error(`Expected ${helper} button to expose its active state.`);
+  }
+
+  if ((await page.locator("#status-line").textContent())?.trim() !== expectedMessage) {
+    throw new Error(`Expected helper prompt "${expectedMessage}".`);
+  }
+
+  const visuals = await page.evaluate((activeHelper) => {
+    const activeButton = document.querySelector(`#${activeHelper}`);
+    const boardFrame = document.querySelector(".board-frame");
+    const tile = document.querySelector(".tile");
+
+    return {
+      buttonShadow: getComputedStyle(activeButton, "::before").boxShadow,
+      frameBorder: getComputedStyle(boardFrame, "::after").borderTopColor,
+      frameOpacity: Number(getComputedStyle(boardFrame, "::after").opacity),
+      tileShadow: getComputedStyle(tile, "::after").boxShadow,
+    };
+  }, helper);
+
+  if (
+    visuals.buttonShadow === "none" ||
+    visuals.frameOpacity <= 0 ||
+    visuals.frameBorder === "rgba(0, 0, 0, 0)" ||
+    visuals.tileShadow === "none"
+  ) {
+    throw new Error(`Expected visible ${helper} feedback, got ${JSON.stringify(visuals)}`);
+  }
+}
+
+async function expectSwapCompletionFeedback(page) {
+  const feedback = await page.locator(
+    ".tile.is-swap-feedback-first, .tile.is-swap-feedback-second",
+  ).evaluateAll((tiles) =>
+    tiles.map((tile) => ({
+      className: tile.className,
+      animationName: getComputedStyle(tile, "::after").animationName,
+      boxShadow: getComputedStyle(tile, "::after").boxShadow,
+    })),
+  );
+
+  if (feedback.length !== 2) {
+    throw new Error(`Expected two swap completion effects, got ${JSON.stringify(feedback)}`);
+  }
+
+  const animationNames = new Set(feedback.map((effect) => effect.animationName));
+
+  if (
+    animationNames.size !== 2 ||
+    feedback.some((effect) => effect.animationName === "none" || effect.boxShadow === "none")
+  ) {
+    throw new Error(`Expected related but distinct swap effects, got ${JSON.stringify(feedback)}`);
+  }
 }
 
 async function getBoardCenter(page) {

@@ -76,6 +76,11 @@ interface QueuedMove {
   source: MoveSource;
 }
 
+interface SwapFeedback {
+  firstTileId: number;
+  secondTileId: number;
+}
+
 interface RuntimeState {
   board: Board;
   tiles: RenderTile[];
@@ -87,6 +92,7 @@ interface RuntimeState {
   rerollMove: RecordedMove | null;
   mode: HelperMode;
   selection: Position[];
+  swapFeedback: SwapFeedback | null;
   isAnimating: boolean;
   lastGain: number;
   message: string;
@@ -115,6 +121,7 @@ const MAX_QUEUED_MOVES = 8;
 const MOVE_SETTLE_MS = 120;
 const TOUCH_MOVE_SETTLE_MS = 100;
 const ANIMATION_RESET_MS = 260;
+const SWAP_FEEDBACK_MS = 650;
 const SWIPE_THRESHOLD = 36;
 const TOUCH_SWIPE_THRESHOLD = 10;
 
@@ -126,7 +133,7 @@ if (!app) {
 
 app.innerHTML = `
   <main class="game-shell">
-    <section class="game-surface" aria-labelledby="game-title">
+    <section class="game-surface" id="game-surface" aria-labelledby="game-title">
       <header class="topbar">
         <div class="brand">
           <h1 id="game-title">2048</h1>
@@ -226,6 +233,7 @@ app.innerHTML = `
 createIcons({ icons });
 
 const boardElement = getElement<HTMLDivElement>("board");
+const gameSurfaceElement = getElement<HTMLElement>("game-surface");
 const gridLayerElement = getElement<HTMLDivElement>("grid-layer");
 const tileLayerElement = getElement<HTMLDivElement>("tile-layer");
 const scoreElement = getElement<HTMLElement>("score-value");
@@ -260,6 +268,7 @@ let queuedMoves: QueuedMove[] = [];
 let nextTileId = 1;
 let moveAnimationTimer: number | undefined;
 let animationCleanupTimer: number | undefined;
+let swapFeedbackTimer: number | undefined;
 let tileMetrics = {
   size: 0,
   gap: 0,
@@ -284,6 +293,7 @@ const state: RuntimeState = {
   rerollMove: savedGame?.rerollMove ?? null,
   mode: "move",
   selection: [],
+  swapFeedback: null,
   isAnimating: false,
   lastGain: 0,
   message: savedGame ? "Restored" : "Ready",
@@ -482,6 +492,7 @@ function pushHistory(move?: RecordedMove): void {
 
 function startNewGame(): void {
   clearAnimationTimers();
+  clearSwapFeedback();
   queuedMoves = [];
   state.board = createInitialBoard();
   state.tiles = createRenderTiles(state.board, true);
@@ -516,6 +527,7 @@ function undo(): void {
   }
 
   clearAnimationTimers();
+  clearSwapFeedback();
   queuedMoves = [];
 
   if (state.helperCharges.undo <= 0) {
@@ -555,6 +567,8 @@ function toggleMode(mode: BoardHelperMode): void {
     return;
   }
 
+  clearSwapFeedback();
+
   if (state.helperCharges[mode] <= 0) {
     state.mode = "move";
     state.selection = [];
@@ -570,7 +584,10 @@ function toggleMode(mode: BoardHelperMode): void {
   } else {
     state.mode = mode;
     state.selection = [];
-    state.message = mode === "swap" ? "Select first tile" : "Select tile";
+    state.message =
+      mode === "swap"
+        ? "Swap: choose first tile"
+        : "Delete: choose a tile value";
   }
 
   state.lastGain = 0;
@@ -625,17 +642,20 @@ function handleCellClick(position: Position): void {
 
   if (!selectedPosition) {
     state.selection = [position];
-    state.message = "Select second tile";
+    state.message = "Swap: choose second tile";
     render();
     return;
   }
 
   if (positionsEqual(selectedPosition, position)) {
     state.selection = [];
-    state.message = "Select first tile";
+    state.message = "Swap: choose first tile";
     render();
     return;
   }
+
+  const firstTileId = getTileIdAtPosition(selectedPosition);
+  const secondTileId = getTileIdAtPosition(position);
 
   pushHistory();
   state.rerollMove = null;
@@ -646,6 +666,7 @@ function handleCellClick(position: Position): void {
   state.selection = [];
   state.lastGain = 0;
   state.message = "Swapped";
+  showSwapFeedback(firstTileId, secondTileId);
   render();
 }
 
@@ -660,6 +681,8 @@ function move(direction: Direction, source: MoveSource = "keyboard"): void {
   if (status !== "playing") {
     return;
   }
+
+  clearSwapFeedback();
 
   if (state.mode !== "move") {
     state.mode = "move";
@@ -805,6 +828,23 @@ function render(): void {
   tilesCountElement.textContent = String(occupiedCells);
   statusLineElement.textContent = state.message;
   boardElement.dataset.mode = state.mode;
+  gameSurfaceElement.dataset.helperMode = state.mode;
+
+  if (state.mode === "swap") {
+    gameSurfaceElement.dataset.helperStep =
+      state.selection.length === 0 ? "first" : "second";
+  } else {
+    delete gameSurfaceElement.dataset.helperStep;
+  }
+
+  statusLineElement.classList.toggle(
+    "is-helper-prompt",
+    state.mode !== "move",
+  );
+  statusLineElement.classList.toggle(
+    "is-delete-prompt",
+    state.mode === "delete",
+  );
 
   const undoUnavailable = !canUndo();
 
@@ -886,6 +926,7 @@ function renderTiles(): void {
     element.dataset.row = String(tile.row);
     element.dataset.col = String(tile.col);
     element.setAttribute("aria-label", `Tile ${tile.value}`);
+    element.setAttribute("aria-selected", String(selected));
     inner.textContent = String(tile.value);
     applyTilePosition(element, tile);
   });
@@ -934,7 +975,15 @@ function getTileClassName(tile: RenderTile, selected: boolean): string {
   }
 
   if (selected) {
-    classes.push("is-selected");
+    classes.push("is-selected", "is-swap-first");
+  }
+
+  if (state.swapFeedback?.firstTileId === tile.id) {
+    classes.push("is-swap-feedback-first");
+  }
+
+  if (state.swapFeedback?.secondTileId === tile.id) {
+    classes.push("is-swap-feedback-second");
   }
 
   if (tile.isNew) {
@@ -984,10 +1033,7 @@ function renderHelperCharges(): void {
 
     button.dataset.charges = String(count);
     button.title = `${HELPER_LABELS[action]}: ${count}/${HELPER_MAX_CHARGES}`;
-    button.setAttribute(
-      "aria-label",
-      `${HELPER_LABELS[action]} (${count}/${HELPER_MAX_CHARGES})`,
-    );
+    button.setAttribute("aria-label", getHelperAriaLabel(action, count));
 
     helperChargeMeters[action]
       .querySelectorAll<HTMLElement>(".charge-pip")
@@ -995,6 +1041,55 @@ function renderHelperCharges(): void {
         pip.classList.toggle("is-filled", index < count);
       });
   });
+}
+
+function getHelperAriaLabel(action: HelperAction, count: number): string {
+  const chargeLabel = `${HELPER_LABELS[action]} (${count}/${HELPER_MAX_CHARGES})`;
+
+  if (action === "delete" && state.mode === "delete") {
+    return `${chargeLabel}, active, choose a tile value`;
+  }
+
+  if (action === "swap" && state.mode === "swap") {
+    const step = state.selection.length === 0 ? "first" : "second";
+    return `${chargeLabel}, active, choose ${step} tile`;
+  }
+
+  return chargeLabel;
+}
+
+function getTileIdAtPosition(position: Position): number {
+  const tile = state.tiles.find(
+    (candidate) =>
+      !candidate.isGhost &&
+      candidate.row === position.row &&
+      candidate.col === position.col,
+  );
+
+  if (!tile) {
+    throw new Error("Selected tile was not found.");
+  }
+
+  return tile.id;
+}
+
+function showSwapFeedback(firstTileId: number, secondTileId: number): void {
+  clearSwapFeedback();
+  state.swapFeedback = { firstTileId, secondTileId };
+  swapFeedbackTimer = window.setTimeout(() => {
+    state.swapFeedback = null;
+    swapFeedbackTimer = undefined;
+    renderTiles();
+  }, SWAP_FEEDBACK_MS);
+}
+
+function clearSwapFeedback(): void {
+  if (swapFeedbackTimer !== undefined) {
+    window.clearTimeout(swapFeedbackTimer);
+    swapFeedbackTimer = undefined;
+  }
+
+  state.swapFeedback = null;
 }
 
 function createMoveAnimation(
