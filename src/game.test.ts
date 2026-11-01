@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   Board,
   createInitialBoard,
+  canDeleteTile,
   deleteTile,
   getGameStatus,
   hasMoves,
@@ -59,6 +60,7 @@ describe("2048 engine", () => {
 
     expect(hasMoves(blocked)).toBe(false);
     expect(getGameStatus(blocked, false)).toBe("over");
+    expect(getGameStatus([[0, 0], [0, 0]], false)).toBe("over");
   });
 
   it("spawns deterministic tiles into empty cells", () => {
@@ -115,5 +117,11 @@ describe("2048 engine", () => {
       [0, 0, 0, 0],
       [0, 0, 0, 0],
     ]);
+  });
+
+  it("does not allow deletion of the last remaining value", () => {
+    expect(canDeleteTile([[2, 2], [0, 0]], { row: 0, col: 0 })).toBe(false);
+    expect(canDeleteTile([[2, 4], [0, 0]], { row: 0, col: 0 })).toBe(true);
+    expect(canDeleteTile([[2, 4], [0, 0]], { row: 1, col: 0 })).toBe(false);
   });
 });

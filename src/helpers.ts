@@ -59,6 +59,17 @@ export function consumeHelperCharge(
   };
 }
 
+export function removeAwardedCharges(
+  current: HelperCharges,
+  awarded: HelperCharges,
+): HelperCharges {
+  return {
+    undo: Math.max(0, current.undo - awarded.undo),
+    swap: Math.max(0, current.swap - awarded.swap),
+    delete: Math.max(0, current.delete - awarded.delete),
+  };
+}
+
 export function parseHelperCharges(value: unknown): HelperCharges | null {
   if (!isRecord(value)) {
     return null;

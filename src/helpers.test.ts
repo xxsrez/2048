@@ -5,6 +5,7 @@ import {
   createEmptyHelperCharges,
   inferHelperChargesFromBoard,
   parseHelperCharges,
+  removeAwardedCharges,
 } from "./helpers";
 
 describe("helper charge rules", () => {
@@ -37,6 +38,13 @@ describe("helper charge rules", () => {
       delete: 2,
     });
     expect(consumeHelperCharge(charges, "delete").delete).toBe(1);
+  });
+
+  it("removes actual rewards from an undone move without negative charges", () => {
+    expect(removeAwardedCharges(
+      { undo: 1, swap: 2, delete: 0 },
+      { undo: 1, swap: 1, delete: 1 },
+    )).toEqual({ undo: 0, swap: 1, delete: 0 });
   });
 
   it("parses and clamps persisted charges", () => {

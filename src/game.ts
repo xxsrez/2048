@@ -181,6 +181,9 @@ export function hasWon(board: Board): boolean {
 }
 
 export function hasMoves(board: Board): boolean {
+  if (!board.some((row) => row.some((cell) => cell !== 0))) {
+    return false;
+  }
   if (findEmptyCells(board).length > 0) {
     return true;
   }
@@ -267,4 +270,10 @@ export function deleteTile(board: Board, position: Position): Board {
   });
 
   return nextBoard;
+}
+
+export function canDeleteTile(board: Board, position: Position): boolean {
+  if (!isOccupied(board, position)) return false;
+  const value = board[position.row][position.col];
+  return board.some((row) => row.some((cell) => cell !== 0 && cell !== value));
 }

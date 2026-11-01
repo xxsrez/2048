@@ -34,8 +34,13 @@ try {
   await page.reload({ waitUntil: "networkidle" });
   await page.getByRole("heading", { name: "2048" }).waitFor();
   await assertFavicon(page);
+  await assertStorageUnavailable(browser, url);
+  if ((await page.locator(".tool-button svg").count()) !== 7) {
+    throw new Error("Expected all game control icons to render.");
+  }
   await assertBestScoreCannotRegressAcrossTabs(browser, url);
   await assertBestScoreRefreshesAfterPageRestore(browser, url);
+  await assertUnreadableSaveIsPreserved(browser, url);
 
   const initialTiles = await page.locator(".tile").count();
   if (initialTiles !== 2) {
@@ -104,6 +109,7 @@ try {
       [0, 0, 0, 0],
       [0, 0, 0, 0],
     ],
+    helperCharges: { undo: 1, swap: 0, delete: 0 },
   });
   await page.keyboard.press("ArrowLeft");
   await page.waitForTimeout(200);
@@ -135,7 +141,7 @@ try {
   }
 
   await page.locator("#undo").click();
-  await expectHelperCounts(page, { undo: 1, swap: 0, delete: 0 });
+  await expectHelperCounts(page, { undo: 0, swap: 0, delete: 0 });
   const tilesAfterUndo = await collectTiles(page);
   const restoredSixtyFours = tilesAfterUndo.filter((tile) => tile.value === "64").length;
   if (restoredSixtyFours !== 4) {
@@ -160,15 +166,28 @@ try {
   await page.keyboard.press("ArrowLeft");
   await page.waitForTimeout(200);
   const firstRandomizedMove = await collectTiles(page);
+  await expectHelperCounts(page, { undo: 2, swap: 1, delete: 0 });
   await page.locator("#undo").click();
+  await expectHelperCounts(page, { undo: 1, swap: 0, delete: 0 });
   await page.keyboard.press("ArrowLeft");
   await page.waitForTimeout(200);
   const repeatedRandomizedMove = await collectTiles(page);
+  await expectHelperCounts(page, { undo: 1, swap: 1, delete: 0 });
 
   if (JSON.stringify(repeatedRandomizedMove) === JSON.stringify(firstRandomizedMove)) {
     throw new Error(
       `Expected the repeated move after undo to reroll its spawn, got ${JSON.stringify(repeatedRandomizedMove)}`,
     );
+  }
+
+  await setSavedGame(page, {
+    board: [[64, 64, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+  });
+  await page.keyboard.press("ArrowLeft");
+  await page.waitForTimeout(200);
+  await expectHelperCounts(page, { undo: 1 });
+  if (!(await page.locator("#undo").isDisabled())) {
+    throw new Error("Undo used a charge earned by the move it would cancel.");
   }
 
   await setSavedGame(page, {
@@ -194,6 +213,41 @@ try {
   await page.locator(".tile").nth(1).click();
   await expectHelperCounts(page, { undo: 0, swap: 0, delete: 0 });
   await expectSwapCompletionFeedback(page);
+
+  await setSavedGame(page, {
+    board: [[2, 2, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+    helperCharges: { undo: 0, swap: 1, delete: 1 },
+  });
+  await page.keyboard.press("Control+ArrowDown");
+  if ((await page.locator("#turns-count").textContent())?.trim() !== "0") {
+    throw new Error("Modified arrow key unexpectedly moved the board.");
+  }
+  await page.locator("#swap").click();
+  await dispatchBoardPointer(page, "pointerdown", { pointerId: 55, pointerType: "touch", clientX: 100, clientY: 100 });
+  await dispatchBoardPointer(page, "pointermove", { pointerId: 55, pointerType: "touch", clientX: 120, clientY: 100 });
+  await dispatchBoardPointer(page, "pointerup", { pointerId: 55, pointerType: "touch", clientX: 120, clientY: 100 });
+  if ((await page.locator("#game-surface").getAttribute("data-helper-mode")) !== "swap" ||
+      (await page.locator("#turns-count").textContent())?.trim() !== "0") {
+    throw new Error("Touch drift during helper selection moved the board.");
+  }
+  await page.locator(".tile").nth(0).click();
+  await page.locator(".tile").nth(1).click();
+  await expectHelperCounts(page, { swap: 1, delete: 1 });
+  await page.locator("#delete").click();
+  await page.locator(".tile").first().click();
+  await expectHelperCounts(page, { swap: 1, delete: 1 });
+  if ((await page.locator("#status-line").textContent())?.trim() !== "Keep at least one tile") {
+    throw new Error("Deleting the last tile value was not blocked.");
+  }
+
+  await setSavedGame(page, {
+    board: [[2048, 2, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+  });
+  if ((await page.locator("#status-line").textContent())?.trim() !== "Reached 2048" ||
+      !(await page.locator("#keep-going").evaluate((el) => el === document.activeElement))) {
+    throw new Error("Win state was not announced and focused.");
+  }
+  await page.locator("#keep-going").click();
 
   await setSavedGame(page, {
     board: [
@@ -479,6 +533,55 @@ async function collectTiles(page) {
   );
 }
 
+async function assertStorageUnavailable(browser, appUrl) {
+  const context = await browser.newContext();
+  try {
+    await context.addInitScript(() => {
+      Math.random = () => 0;
+      Object.defineProperty(window, "localStorage", {
+        get() { throw new DOMException("Storage blocked", "SecurityError"); },
+      });
+    });
+    const page = await context.newPage();
+    await page.goto(appUrl, { waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: "2048" }).waitFor();
+    await page.keyboard.press("ArrowDown");
+    if ((await page.locator("#turns-count").textContent())?.trim() !== "1") {
+      throw new Error("Game did not remain playable with blocked storage.");
+    }
+  } finally {
+    await context.close();
+  }
+}
+
+async function assertUnreadableSaveIsPreserved(browser, appUrl) {
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    await page.goto(appUrl);
+    const invalid = '{"version":2,"board":"future save"}';
+    await page.evaluate((raw) => localStorage.setItem("local-2048-game-state", raw), invalid);
+    await page.reload();
+    await page.getByText(/Saved game is unreadable/).waitFor();
+    await page.keyboard.press("ArrowLeft");
+    const saved = await page.evaluate(() => localStorage.getItem("local-2048-game-state"));
+    if (saved !== invalid || await page.locator("#new-game").isDisabled()) {
+      throw new Error("Unreadable saved game was not protected.");
+    }
+    await page.locator("#new-game").click();
+    const backedUp = await page.evaluate(() => Object.keys(localStorage)
+      .filter((key) => key.startsWith("local-2048-game-state-unreadable-"))
+      .some((key) => localStorage.getItem(key) === '{"version":2,"board":"future save"}'));
+    const newSave = await page.evaluate(() => JSON.parse(localStorage.getItem("local-2048-game-state")));
+    if (!backedUp || newSave.version !== 1 || newSave.board.flat().filter(Boolean).length !== 2 ||
+        await page.locator("#new-game").isDisabled()) {
+      throw new Error("Starting a new game did not preserve the unreadable save.");
+    }
+  } finally {
+    await context.close();
+  }
+}
+
 async function assertBestScoreCannotRegressAcrossTabs(browser, appUrl) {
   const context = await browser.newContext();
   const stalePage = await context.newPage();
@@ -531,7 +634,10 @@ async function assertBestScoreCannotRegressAcrossTabs(browser, appUrl) {
       .getByText("1700000", { exact: true })
       .waitFor();
 
-    await stalePage.locator("#new-game").click();
+    await stalePage.keyboard.press("ArrowLeft");
+    if (!(await stalePage.locator("#new-game").isDisabled())) {
+      throw new Error("A stale tab did not lock after another tab saved a game.");
+    }
 
     const scoresAfterStaleWrite = await stalePage.evaluate(() => {
       const gameState = JSON.parse(
@@ -553,6 +659,13 @@ async function assertBestScoreCannotRegressAcrossTabs(browser, appUrl) {
       throw new Error(
         `A stale tab lowered the best score: ${JSON.stringify(scoresAfterStaleWrite)}`,
       );
+    }
+
+    const currentScore = await stalePage.evaluate(() =>
+      JSON.parse(window.localStorage.getItem("local-2048-game-state")).score,
+    );
+    if (currentScore !== 1700000) {
+      throw new Error(`A stale tab overwrote the newer game: ${currentScore}`);
     }
 
     await recordPage.close();

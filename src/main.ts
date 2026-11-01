@@ -1,4 +1,4 @@
-import { createIcons, icons } from "lucide";
+import { ArrowLeftRight, createIcons, Eraser, Play, RotateCcw, Undo2 } from "lucide";
 import "./styles.css";
 import {
   BEST_SCORE_BACKUP_KEY,
@@ -13,6 +13,7 @@ import {
   Position,
   type SpawnOutcome,
   cloneBoard,
+  canDeleteTile,
   countOccupiedCells,
   createInitialBoard,
   deleteTile,
@@ -33,6 +34,7 @@ import {
   createEmptyHelperCharges,
   inferHelperChargesFromBoard,
   parseHelperCharges,
+  removeAwardedCharges,
   type BoardHelperMode,
   type HelperAction,
   type HelperCharges,
@@ -44,6 +46,7 @@ interface Snapshot {
   score: number;
   keepPlaying: boolean;
   move?: RecordedMove;
+  awarded?: HelperCharges;
 }
 
 interface RecordedMove {
@@ -157,7 +160,7 @@ app.innerHTML = `
       </header>
 
       <div class="board-frame">
-        <div class="board" id="board" role="grid" aria-label="2048 board" tabindex="0">
+        <div class="board" id="board" role="group" aria-label="2048 board" tabindex="0">
           <div class="grid-layer" id="grid-layer" aria-hidden="true"></div>
           <div class="tile-layer" id="tile-layer"></div>
         </div>
@@ -219,7 +222,7 @@ app.innerHTML = `
         <strong id="largest-tile">0</strong>
       </div>
       <div class="stat">
-        <span>Turns</span>
+        <span>History</span>
         <strong id="turns-count">0</strong>
       </div>
       <div class="stat">
@@ -230,7 +233,7 @@ app.innerHTML = `
   </main>
 `;
 
-createIcons({ icons });
+createIcons({ icons: { ArrowLeftRight, Eraser, Play, RotateCcw, Undo2 } });
 
 const boardElement = getElement<HTMLDivElement>("board");
 const gameSurfaceElement = getElement<HTMLElement>("game-surface");
@@ -274,10 +277,25 @@ let tileMetrics = {
   gap: 0,
 };
 
-const savedGame = readGameState();
+// Accessing the localStorage property itself can throw in restricted contexts.
+const bestScoreStorage = {
+  getItem: (key: string) => window.localStorage.getItem(key),
+  setItem: (key: string, value: string) => window.localStorage.setItem(key, value),
+};
+let lastSavedGame: string | null = null;
+let saveConflict = false;
+let unreadableSave = false;
+try {
+  lastSavedGame = window.localStorage.getItem(GAME_STATE_KEY);
+} catch {
+  // The game can still be played in memory.
+}
+const savedGame = readGameState(lastSavedGame);
+saveConflict = lastSavedGame !== null && savedGame === null;
+unreadableSave = saveConflict;
 const initialBoard = savedGame?.board ?? createInitialBoard();
 const initialBestScore = Math.max(
-  readBestScore(window.localStorage),
+  readBestScore(bestScoreStorage),
   savedGame?.bestScore ?? 0,
   savedGame?.score ?? 0,
 );
@@ -304,6 +322,12 @@ syncTileMetrics();
 render();
 
 window.addEventListener("storage", (event) => {
+  if (event.key === GAME_STATE_KEY && event.newValue !== lastSavedGame) {
+    saveConflict = true;
+    unreadableSave = false;
+    render();
+    return;
+  }
   if (
     event.key !== BEST_SCORE_KEY &&
     event.key !== BEST_SCORE_BACKUP_KEY
@@ -317,6 +341,7 @@ window.addEventListener("storage", (event) => {
 window.addEventListener("pageshow", (event) => {
   if (event.persisted) {
     synchronizeBestScore();
+    if (!canChangeGame()) render();
   }
 });
 
@@ -395,6 +420,7 @@ boardElement.addEventListener("pointerdown", (event) => {
 boardElement.addEventListener("pointermove", (event) => {
   if (
     !pointerStart ||
+    state.mode !== "move" ||
     pointerStart.source !== "touch" ||
     pointerStart.id !== event.pointerId
   ) {
@@ -425,7 +451,7 @@ boardElement.addEventListener("pointerup", (event) => {
   const direction = getSwipeDirection(start, event.clientX, event.clientY);
   clearPointerStart(event.pointerId);
 
-  if (!direction) {
+  if (!direction || state.mode !== "move") {
     return;
   }
 
@@ -439,6 +465,7 @@ boardElement.addEventListener("pointercancel", (event) => {
 });
 
 window.addEventListener("keydown", (event) => {
+  if (event.ctrlKey || event.metaKey || event.altKey) return;
   const directionByKey: Record<string, Direction | undefined> = {
     ArrowUp: "up",
     ArrowRight: "right",
@@ -453,7 +480,10 @@ window.addEventListener("keydown", (event) => {
     S: "down",
     A: "left",
   };
-  const direction = directionByKey[event.key];
+  const directionByCode: Record<string, Direction | undefined> = {
+    KeyW: "up", KeyD: "right", KeyS: "down", KeyA: "left",
+  };
+  const direction = directionByCode[event.code] ?? directionByKey[event.key];
 
   if (!direction) {
     return;
@@ -491,6 +521,26 @@ function pushHistory(move?: RecordedMove): void {
 }
 
 function startNewGame(): void {
+  if (unreadableSave) {
+    try {
+      if (window.localStorage.getItem(GAME_STATE_KEY) !== lastSavedGame) {
+        unreadableSave = false;
+        saveConflict = true;
+        render();
+        return;
+      }
+      let backupKey = `${GAME_STATE_KEY}-unreadable-${Date.now()}`;
+      while (window.localStorage.getItem(backupKey) !== null) backupKey += "-1";
+      window.localStorage.setItem(backupKey, lastSavedGame!);
+      unreadableSave = false;
+      saveConflict = false;
+    } catch {
+      state.message = "Could not back up the saved game";
+      statusLineElement.textContent = state.message;
+      return;
+    }
+  }
+  if (!canChangeGame()) return;
   clearAnimationTimers();
   clearSwapFeedback();
   queuedMoves = [];
@@ -511,6 +561,7 @@ function startNewGame(): void {
 }
 
 function keepGoing(): void {
+  if (!canChangeGame()) return;
   if (state.isAnimating) {
     return;
   }
@@ -522,6 +573,7 @@ function keepGoing(): void {
 }
 
 function undo(): void {
+  if (!canChangeGame()) return;
   if (state.isAnimating) {
     return;
   }
@@ -530,7 +582,7 @@ function undo(): void {
   clearSwapFeedback();
   queuedMoves = [];
 
-  if (state.helperCharges.undo <= 0) {
+  if (!canUndo()) {
     state.message = "No undo uses";
     render();
     return;
@@ -549,6 +601,9 @@ function undo(): void {
   state.score = previous.score;
   state.keepPlaying = previous.keepPlaying;
   state.rerollMove = previous.move ?? null;
+  if (previous.awarded) {
+    state.helperCharges = removeAwardedCharges(state.helperCharges, previous.awarded);
+  }
   state.helperCharges = consumeHelperCharge(state.helperCharges, "undo");
   state.mode = "move";
   state.selection = [];
@@ -559,6 +614,7 @@ function undo(): void {
 }
 
 function toggleMode(mode: BoardHelperMode): void {
+  if (!canChangeGame()) return;
   if (state.isAnimating) {
     return;
   }
@@ -597,6 +653,7 @@ function toggleMode(mode: BoardHelperMode): void {
 }
 
 function handleCellClick(position: Position): void {
+  if (!canChangeGame()) return;
   if (state.isAnimating) {
     return;
   }
@@ -622,6 +679,11 @@ function handleCellClick(position: Position): void {
   }
 
   if (state.mode === "delete") {
+    if (!canDeleteTile(state.board, position)) {
+      state.message = "Keep at least one tile";
+      render();
+      return;
+    }
     const deletedValue = state.board[position.row][position.col];
 
     pushHistory();
@@ -635,6 +697,7 @@ function handleCellClick(position: Position): void {
     state.lastGain = 0;
     state.message = "Deleted";
     render();
+    boardElement.focus();
     return;
   }
 
@@ -650,6 +713,12 @@ function handleCellClick(position: Position): void {
   if (positionsEqual(selectedPosition, position)) {
     state.selection = [];
     state.message = "Swap: choose first tile";
+    render();
+    return;
+  }
+
+  if (state.board[selectedPosition.row][selectedPosition.col] === state.board[position.row][position.col]) {
+    state.message = "Choose a different value";
     render();
     return;
   }
@@ -671,6 +740,7 @@ function handleCellClick(position: Position): void {
 }
 
 function move(direction: Direction, source: MoveSource = "keyboard"): void {
+  if (!canChangeGame()) return;
   if (state.isAnimating) {
     queueMove(direction, source);
     return;
@@ -710,12 +780,18 @@ function move(direction: Direction, source: MoveSource = "keyboard"): void {
   pushHistory(recordedMove);
   state.rerollMove = null;
   const moveAnimation = createMoveAnimation(state.tiles, direction, spawn);
+  const previousCharges = state.helperCharges;
   state.helperCharges = awardHelperCharges(
     state.helperCharges,
     moveAnimation.settledTiles
       .filter((tile) => tile.isMerged)
       .map((tile) => tile.value),
   );
+  state.history[state.history.length - 1].awarded = {
+    undo: state.helperCharges.undo - previousCharges.undo,
+    swap: state.helperCharges.swap - previousCharges.swap,
+    delete: state.helperCharges.delete - previousCharges.delete,
+  };
   state.board = spawn.board;
   state.tiles = moveAnimation.displayTiles;
   state.isAnimating = true;
@@ -737,6 +813,7 @@ function requestMove(
   direction: Direction,
   source: MoveSource = "keyboard",
 ): void {
+  if (!canChangeGame()) return;
   if (state.isAnimating) {
     queueMove(direction, source);
     return;
@@ -826,7 +903,11 @@ function render(): void {
   largestTileElement.textContent = String(getLargestTile(state.board));
   turnsCountElement.textContent = String(state.history.length);
   tilesCountElement.textContent = String(occupiedCells);
-  statusLineElement.textContent = state.message;
+  statusLineElement.textContent = saveConflict
+    ? unreadableSave
+      ? "Saved game is unreadable. New Game will back it up first."
+      : "Game changed in another tab. Reload to continue."
+    : status === "won" ? "Reached 2048" : status === "over" ? "Game over" : state.message;
   boardElement.dataset.mode = state.mode;
   gameSurfaceElement.dataset.helperMode = state.mode;
 
@@ -848,14 +929,17 @@ function render(): void {
 
   const undoUnavailable = !canUndo();
 
-  undoButton.disabled = undoUnavailable;
+  newGameButton.disabled = saveConflict && !unreadableSave;
+  restartButton.disabled = saveConflict;
+  keepGoingButton.disabled = saveConflict;
+  undoButton.disabled = undoUnavailable || saveConflict;
   swapButton.disabled =
-    state.helperCharges.swap === 0 ||
+    saveConflict || state.helperCharges.swap === 0 ||
     state.isAnimating ||
     status !== "playing" ||
     occupiedCells < 2;
   deleteButton.disabled =
-    state.helperCharges.delete === 0 ||
+    saveConflict || state.helperCharges.delete === 0 ||
     state.isAnimating ||
     status !== "playing" ||
     occupiedCells === 0;
@@ -873,7 +957,7 @@ function render(): void {
 
 function synchronizeBestScore(): void {
   state.bestScore = preserveBestScore(
-    window.localStorage,
+    bestScoreStorage,
     Math.max(state.bestScore, state.score),
   );
   bestScoreElement.textContent = String(state.bestScore);
@@ -912,7 +996,6 @@ function renderTiles(): void {
       element.type = "button";
       element.className = "tile";
       element.dataset.id = String(tile.id);
-      element.setAttribute("role", "gridcell");
       element.innerHTML = '<span class="tile-inner"></span>';
       tileLayerElement.append(element);
     }
@@ -925,8 +1008,12 @@ function renderTiles(): void {
     element.className = getTileClassName(tile, selected);
     element.dataset.row = String(tile.row);
     element.dataset.col = String(tile.col);
-    element.setAttribute("aria-label", `Tile ${tile.value}`);
-    element.setAttribute("aria-selected", String(selected));
+    element.setAttribute("aria-label", `Tile ${tile.value}, row ${tile.row + 1}, column ${tile.col + 1}`);
+    if (state.mode === "swap") element.setAttribute("aria-pressed", String(selected));
+    else element.removeAttribute("aria-pressed");
+    element.tabIndex = state.mode === "move" || tile.isGhost ? -1 : 0;
+    if (tile.isGhost) element.setAttribute("aria-hidden", "true");
+    else element.removeAttribute("aria-hidden");
     inner.textContent = String(tile.value);
     applyTilePosition(element, tile);
   });
@@ -934,21 +1021,25 @@ function renderTiles(): void {
 
 function renderOverlay(status: string): void {
   if (status === "won") {
+    const wasHidden = overlayElement.hidden;
     overlayElement.hidden = false;
     resultKickerElement.textContent = "Reached";
     resultTitleElement.textContent = "2048";
     keepGoingButton.hidden = false;
     overlayUndoButton.hidden = true;
+    if (wasHidden && !saveConflict) keepGoingButton.focus();
     return;
   }
 
   if (status === "over") {
+    const wasHidden = overlayElement.hidden;
     overlayElement.hidden = false;
     resultKickerElement.textContent = "No moves";
     resultTitleElement.textContent = "Game over";
     keepGoingButton.hidden = true;
     overlayUndoButton.hidden = false;
-    overlayUndoButton.disabled = !canUndo();
+    overlayUndoButton.disabled = saveConflict || !canUndo();
+    if (wasHidden && !saveConflict) restartButton.focus();
     return;
   }
 
@@ -956,9 +1047,10 @@ function renderOverlay(status: string): void {
 }
 
 function canUndo(): boolean {
+  const previous = state.history.at(-1);
   return (
-    state.helperCharges.undo > 0 &&
-    state.history.length > 0 &&
+    !!previous &&
+    state.helperCharges.undo > (previous.awarded?.undo ?? 0) &&
     !state.isAnimating
   );
 }
@@ -1034,6 +1126,10 @@ function renderHelperCharges(): void {
     button.dataset.charges = String(count);
     button.title = `${HELPER_LABELS[action]}: ${count}/${HELPER_MAX_CHARGES}`;
     button.setAttribute("aria-label", getHelperAriaLabel(action, count));
+    if (action === "undo" && count > 0 && state.history.length > 0 && !state.isAnimating && !canUndo()) {
+      button.title += " (earned by the last move)";
+      button.setAttribute("aria-label", `${button.title}; undo needs an earlier charge`);
+    }
 
     helperChargeMeters[action]
       .querySelectorAll<HTMLElement>(".charge-pip")
@@ -1311,6 +1407,7 @@ function clearAnimationTimers(): void {
 }
 
 function persistGameState(): void {
+  if (!canChangeGame()) return;
   const gameState: PersistedGame = {
     version: 1,
     board: cloneBoard(state.board),
@@ -1323,22 +1420,37 @@ function persistGameState(): void {
       score: item.score,
       keepPlaying: item.keepPlaying,
       ...(item.move ? { move: item.move } : {}),
+      ...(item.awarded ? { awarded: item.awarded } : {}),
     })),
     rerollMove: state.rerollMove,
   };
 
   try {
-    window.localStorage.setItem(GAME_STATE_KEY, JSON.stringify(gameState));
+    const serialized = JSON.stringify(gameState);
+    window.localStorage.setItem(GAME_STATE_KEY, serialized);
+    lastSavedGame = serialized;
     writeHelperCharges(state.helperCharges);
   } catch {
     window.console.warn("Could not persist game state.");
   }
 }
 
-function readGameState(): PersistedGame | null {
+function canChangeGame(): boolean {
+  if (saveConflict) return false;
   try {
-    const stored = window.localStorage.getItem(GAME_STATE_KEY);
+    if (window.localStorage.getItem(GAME_STATE_KEY) !== lastSavedGame) {
+      saveConflict = true;
+      render();
+      return false;
+    }
+  } catch {
+    // Storage may be blocked; continue in memory.
+  }
+  return true;
+}
 
+function readGameState(stored: string | null): PersistedGame | null {
+  try {
     if (!stored) {
       return null;
     }
@@ -1427,8 +1539,9 @@ function parseHistory(value: unknown): Snapshot[] | null {
     const board = parseBoard(item.board);
     const score = parseNonNegativeInteger(item.score);
     const move = parseRecordedMove(item.move);
+    const awarded = item.awarded === undefined ? undefined : parseHelperCharges(item.awarded);
 
-    if (!board || score === null) {
+    if (!board || score === null || awarded === null) {
       return null;
     }
 
@@ -1437,6 +1550,7 @@ function parseHistory(value: unknown): Snapshot[] | null {
       score,
       keepPlaying: item.keepPlaying,
       ...(move ? { move } : {}),
+      ...(awarded ? { awarded } : {}),
     };
   });
 
