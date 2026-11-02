@@ -42,7 +42,7 @@ The History counter shows saved undo snapshots, including helper actions, up to 
 
 The current board, score, helper uses, keep-playing state, and undo history are saved in `localStorage`. Helper uses are also mirrored in a dedicated storage key so refreshes and older saved games keep the charges stable. The best score has a monotonic backup and is reconciled across open tabs and browser page-cache restores so stale in-memory state cannot lower it. Refreshing the page restores the in-progress game. New Game starts a fresh saved game with zero helper uses.
 
-When another tab changes the saved game, the older tab stops accepting moves; reload it to continue from the saved game. An unreadable save is left untouched; New Game first copies it to a separate browser storage key before starting. If the backup cannot be written, the original remains untouched and the new game cannot start. If browser storage is unavailable, the game works in memory but cannot be restored after a reload.
+When another tab changes the saved game, the older tab stops accepting moves; reload it to continue from the saved game. An unreadable save is left untouched; New Game first copies it to a separate browser storage key before starting. If the backup cannot be written, the original remains untouched and the new game cannot start. If saving fails, a warning appears and play continues in memory; reloading can lose progress since the last successful save.
 
 Browser storage is separate for each website address. The Railway and Sites versions therefore keep independent games and best scores.
 

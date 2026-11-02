@@ -706,6 +706,18 @@ h1 {
   color: #80604f;
 }
 
+.storage-warning {
+  margin: 0 auto;
+  color: #8a3229;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.storage-warning:not(:empty) {
+  margin-top: 8px;
+}
+
 .stats-panel {
   position: absolute;
   width: 1px;

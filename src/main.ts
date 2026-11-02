@@ -214,6 +214,7 @@ app.innerHTML = `
       </nav>
 
       <div class="status-line" id="status-line" role="status" aria-live="polite"></div>
+      <div class="storage-warning" id="storage-warning" role="status" aria-live="polite"></div>
     </section>
 
     <aside class="stats-panel" aria-label="Game details">
@@ -245,6 +246,7 @@ const largestTileElement = getElement<HTMLElement>("largest-tile");
 const turnsCountElement = getElement<HTMLElement>("turns-count");
 const tilesCountElement = getElement<HTMLElement>("tiles-count");
 const statusLineElement = getElement<HTMLElement>("status-line");
+const storageWarningElement = getElement<HTMLElement>("storage-warning");
 const overlayElement = getElement<HTMLDivElement>("result-overlay");
 const resultKickerElement = getElement<HTMLElement>("result-kicker");
 const resultTitleElement = getElement<HTMLElement>("result-title");
@@ -638,6 +640,8 @@ function toggleMode(mode: BoardHelperMode): void {
     state.selection = [];
     state.message = "Ready";
   } else {
+    window.clearTimeout(animationCleanupTimer);
+    state.tiles = state.tiles.map((tile) => ({ ...tile, isNew: false, isMerged: false }));
     state.mode = mode;
     state.selection = [];
     state.message =
@@ -737,6 +741,7 @@ function handleCellClick(position: Position): void {
   state.message = "Swapped";
   showSwapFeedback(firstTileId, secondTileId);
   render();
+  boardElement.focus();
 }
 
 function move(direction: Direction, source: MoveSource = "keyboard"): void {
@@ -757,6 +762,7 @@ function move(direction: Direction, source: MoveSource = "keyboard"): void {
   if (state.mode !== "move") {
     state.mode = "move";
     state.selection = [];
+    boardElement.focus();
   }
 
   const result = moveBoard(state.board, direction);
@@ -783,9 +789,7 @@ function move(direction: Direction, source: MoveSource = "keyboard"): void {
   const previousCharges = state.helperCharges;
   state.helperCharges = awardHelperCharges(
     state.helperCharges,
-    moveAnimation.settledTiles
-      .filter((tile) => tile.isMerged)
-      .map((tile) => tile.value),
+    result.mergedValues,
   );
   state.history[state.history.length - 1].awarded = {
     undo: state.helperCharges.undo - previousCharges.undo,
@@ -903,11 +907,14 @@ function render(): void {
   largestTileElement.textContent = String(getLargestTile(state.board));
   turnsCountElement.textContent = String(state.history.length);
   tilesCountElement.textContent = String(occupiedCells);
-  statusLineElement.textContent = saveConflict
+  const statusText = saveConflict
     ? unreadableSave
       ? "Saved game is unreadable. New Game will back it up first."
       : "Game changed in another tab. Reload to continue."
     : status === "won" ? "Reached 2048" : status === "over" ? "Game over" : state.message;
+  if (statusLineElement.textContent !== statusText) {
+    statusLineElement.textContent = statusText;
+  }
   boardElement.dataset.mode = state.mode;
   gameSurfaceElement.dataset.helperMode = state.mode;
 
@@ -1017,6 +1024,16 @@ function renderTiles(): void {
     inner.textContent = String(tile.value);
     applyTilePosition(element, tile);
   });
+
+  if (!state.isAnimating && !state.swapFeedback && queuedMoves.length === 0 &&
+      !state.tiles.some((tile) => tile.isNew || tile.isMerged)) {
+    const orderedTiles = [...state.tiles].sort((a, b) => a.row - b.row || a.col - b.col);
+    orderedTiles.forEach((tile, index) => {
+      const element = tileLayerElement.querySelector<HTMLButtonElement>(`.tile[data-id="${tile.id}"]`);
+      const current = tileLayerElement.children[index];
+      if (element && element !== current) tileLayerElement.insertBefore(element, current ?? null);
+    });
+  }
 }
 
 function renderOverlay(status: string): void {
@@ -1429,9 +1446,16 @@ function persistGameState(): void {
     const serialized = JSON.stringify(gameState);
     window.localStorage.setItem(GAME_STATE_KEY, serialized);
     lastSavedGame = serialized;
+    storageWarningElement.textContent = "";
+  } catch {
+    const warning = "Game not saved. Reloading may lose progress.";
+    if (storageWarningElement.textContent !== warning) storageWarningElement.textContent = warning;
+    return;
+  }
+  try {
     writeHelperCharges(state.helperCharges);
   } catch {
-    window.console.warn("Could not persist game state.");
+    // The current game contains its own charges; the mirror is only for legacy saves.
   }
 }
 

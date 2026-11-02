@@ -35,6 +35,7 @@ try {
   await page.getByRole("heading", { name: "2048" }).waitFor();
   await assertFavicon(page);
   await assertStorageUnavailable(browser, url);
+  await assertSaveFailureAndRecovery(browser, url);
   if ((await page.locator(".tool-button svg").count()) !== 7) {
     throw new Error("Expected all game control icons to render.");
   }
@@ -203,6 +204,12 @@ try {
   await expectHelperCounts(page, { undo: 0, swap: 1, delete: 0 });
   await page.locator("#swap").click();
   await expectArmedHelperFeedback(page, "swap", "first");
+  const tileOrder = await page.locator(".tile").evaluateAll((tiles) =>
+    tiles.map((tile) => Number(tile.dataset.row) * 4 + Number(tile.dataset.col)),
+  );
+  if (tileOrder.some((position, index) => index > 0 && position < tileOrder[index - 1])) {
+    throw new Error(`Helper tiles are not in board order: ${tileOrder}`);
+  }
   await page.locator(".tile").nth(0).click();
   await expectArmedHelperFeedback(page, "swap", "second");
 
@@ -345,7 +352,7 @@ try {
       JSON.stringify({
         version: 1,
         board: [
-          [2, 2, 0, 0],
+          [2, 2, 4, 0],
           [0, 0, 0, 0],
           [0, 0, 0, 0],
           [0, 0, 0, 0],
@@ -359,19 +366,33 @@ try {
     );
   });
   await page.reload({ waitUntil: "networkidle" });
+  await page.addStyleTag({ content: ".tile.is-merged .tile-inner { animation-duration: 4s !important; }" });
+  await page.evaluate(() => {
+    const layer = document.querySelector("#tile-layer");
+    window.__mergeAnimationCheck = { original: null, continued: null, ghosts: 0 };
+    const observer = new MutationObserver(() => {
+      const state = window.__mergeAnimationCheck;
+      const animation = document.querySelector(".tile.is-merged .tile-inner")?.getAnimations()[0];
+      if (!state.original && animation) {
+        state.original = animation;
+        state.ghosts = document.querySelectorAll(".tile.is-ghost").length;
+      }
+      if (state.original && !document.querySelector(".tile.is-ghost")) {
+        state.continued = animation === state.original;
+        observer.disconnect();
+      }
+    });
+    observer.observe(layer, { childList: true, subtree: true });
+  });
   await page.keyboard.press("ArrowLeft");
-  await page.waitForTimeout(30);
-
-  const slidingTexts = await page.locator(".tile").allTextContents();
-  const sourceTwos = slidingTexts.filter((text) => text.trim() === "2").length;
-
-  if (sourceTwos < 2 || !slidingTexts.some((text) => text.trim() === "4")) {
-    throw new Error(
-      `Expected source tiles and delayed merged tile during merge slide, got ${slidingTexts.join(", ")}`,
-    );
+  await page.waitForFunction(() => window.__mergeAnimationCheck.continued !== null);
+  const animationCheck = await page.evaluate(() => ({
+    continued: window.__mergeAnimationCheck.continued,
+    ghosts: window.__mergeAnimationCheck.ghosts,
+  }));
+  if (!animationCheck.continued || animationCheck.ghosts < 2) {
+    throw new Error(`Merge animation or its source tiles did not survive the slide: ${JSON.stringify(animationCheck)}`);
   }
-
-  await page.waitForTimeout(180);
   const settledTexts = await page.locator(".tile").allTextContents();
   if (!settledTexts.some((text) => text.trim() === "4")) {
     throw new Error(`Expected merged tile after settle, got ${settledTexts.join(", ")}`);
@@ -545,9 +566,54 @@ async function assertStorageUnavailable(browser, appUrl) {
     const page = await context.newPage();
     await page.goto(appUrl, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "2048" }).waitFor();
+    await page.getByText("Game not saved. Reloading may lose progress.").waitFor();
     await page.keyboard.press("ArrowDown");
     if ((await page.locator("#turns-count").textContent())?.trim() !== "1") {
       throw new Error("Game did not remain playable with blocked storage.");
+    }
+  } finally {
+    await context.close();
+  }
+}
+
+async function assertSaveFailureAndRecovery(browser, appUrl) {
+  const context = await browser.newContext();
+  try {
+    await context.addInitScript(() => { Math.random = () => 0; });
+    const page = await context.newPage();
+    await page.goto(appUrl, { waitUntil: "networkidle" });
+    const savedBefore = await page.evaluate(() => {
+      const original = Storage.prototype.setItem;
+      window.__restoreStorage = () => { Storage.prototype.setItem = original; };
+      Storage.prototype.setItem = function(key, value) {
+        if (key === "local-2048-game-state") throw new DOMException("Full", "QuotaExceededError");
+        return original.call(this, key, value);
+      };
+      return localStorage.getItem("local-2048-game-state");
+    });
+    await page.keyboard.press("ArrowDown");
+    await page.getByText("Game not saved. Reloading may lose progress.").waitFor();
+    if (await page.evaluate(() => localStorage.getItem("local-2048-game-state")) !== savedBefore) {
+      throw new Error("Failed write unexpectedly changed the saved game.");
+    }
+    await page.evaluate(() => window.__restoreStorage());
+    await page.waitForTimeout(200);
+    await page.keyboard.press("ArrowUp");
+    await page.waitForFunction(() => document.querySelector("#storage-warning")?.textContent === "");
+    if (await page.evaluate(() => localStorage.getItem("local-2048-game-state")) === savedBefore) {
+      throw new Error("Saving did not recover after storage became available.");
+    }
+    await page.evaluate(() => {
+      const original = Storage.prototype.setItem;
+      Storage.prototype.setItem = function(key, value) {
+        if (key === "local-2048-helper-charges") throw new DOMException("Full", "QuotaExceededError");
+        return original.call(this, key, value);
+      };
+    });
+    await page.waitForTimeout(200);
+    await page.keyboard.press("ArrowDown");
+    if ((await page.locator("#storage-warning").textContent()) !== "") {
+      throw new Error("Mirror failure was incorrectly reported as a lost game save.");
     }
   } finally {
     await context.close();

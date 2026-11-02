@@ -23,10 +23,12 @@ describe("2048 engine", () => {
     expect(slideLine([2, 2, 2, 0])).toEqual({
       line: [4, 2, 0, 0],
       scoreGain: 4,
+      mergedValues: [4],
     });
     expect(slideLine([2, 2, 2, 2])).toEqual({
       line: [4, 4, 0, 0],
       scoreGain: 8,
+      mergedValues: [4, 4],
     });
   });
 
@@ -47,7 +49,45 @@ describe("2048 engine", () => {
       ],
       scoreGain: 16,
       moved: true,
+      mergedValues: [4, 8, 4],
     });
+  });
+
+  it.each([
+    ["left", [[4, 0], [8, 0]]],
+    ["right", [[0, 4], [0, 8]]],
+    ["up", [[2, 2], [4, 4]]],
+    ["down", [[2, 2], [4, 4]]],
+  ] as const)("moves %s and reports only real merges", (direction, expected) => {
+    const result = moveBoard([[2, 2], [4, 4]], direction);
+    expect(result.board).toEqual(expected);
+    expect(result.mergedValues).toEqual(direction === "left" || direction === "right" ? [4, 8] : []);
+    expect(result.moved).toBe(direction === "left" || direction === "right");
+  });
+
+  it("handles vertical merges, win continuation and a bounded reroll", () => {
+    expect(moveBoard([[2, 4], [2, 8]], "down")).toMatchObject({
+      board: [[0, 4], [4, 8]], scoreGain: 4, mergedValues: [4], moved: true,
+    });
+    expect(hasMoves([[2, 4], [2, 8]])).toBe(true);
+    expect(getGameStatus([[2048, 2], [4, 8]], false)).toBe("won");
+    expect(getGameStatus([[2048, 2], [4, 8]], true)).toBe("over");
+    const rerolled = spawnTileWithPosition([[2, 0], [4, 8]], () => 0, {
+      position: { row: 0, col: 1 }, value: 2,
+    });
+    expect(rerolled).toMatchObject({ position: { row: 0, col: 1 }, value: 4 });
+  });
+
+  it("merges from the leading edge on right and downward moves", () => {
+    const row = [[2, 2, 2, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]];
+    const column = [[2, 0, 0, 0], [2, 0, 0, 0], [2, 0, 0, 0], [0, 0, 0, 0]];
+    expect(moveBoard(row, "right")).toMatchObject({
+      board: [[0, 0, 2, 4], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]], mergedValues: [4],
+    });
+    expect(moveBoard(column, "down")).toMatchObject({
+      board: [[0, 0, 0, 0], [0, 0, 0, 0], [2, 0, 0, 0], [4, 0, 0, 0]], mergedValues: [4],
+    });
+    expect(moveBoard(column, "up").board).toEqual([[4, 0, 0, 0], [2, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]);
   });
 
   it("detects blocked boards", () => {

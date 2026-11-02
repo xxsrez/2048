@@ -13,12 +13,14 @@ export interface Position {
 export interface SlideResult {
   line: number[];
   scoreGain: number;
+  mergedValues: number[];
 }
 
 export interface MoveResult {
   board: Board;
   scoreGain: number;
   moved: boolean;
+  mergedValues: number[];
 }
 
 export interface SpawnResult {
@@ -52,6 +54,7 @@ export function slideLine(line: number[]): SlideResult {
   const compacted = line.filter((value) => value !== 0);
   const merged: number[] = [];
   let scoreGain = 0;
+  const mergedValues: number[] = [];
 
   for (let index = 0; index < compacted.length; index += 1) {
     const current = compacted[index];
@@ -61,6 +64,7 @@ export function slideLine(line: number[]): SlideResult {
       const value = current * 2;
       merged.push(value);
       scoreGain += value;
+      mergedValues.push(value);
       index += 1;
     } else {
       merged.push(current);
@@ -71,13 +75,14 @@ export function slideLine(line: number[]): SlideResult {
     merged.push(0);
   }
 
-  return { line: merged, scoreGain };
+  return { line: merged, scoreGain, mergedValues };
 }
 
 export function moveBoard(board: Board, direction: Direction): MoveResult {
   const size = board.length;
   const nextBoard = createEmptyBoard(size);
   let scoreGain = 0;
+  const mergedValues: number[] = [];
 
   if (direction === "left" || direction === "right") {
     board.forEach((row, rowIndex) => {
@@ -87,6 +92,7 @@ export function moveBoard(board: Board, direction: Direction): MoveResult {
 
       nextBoard[rowIndex] = line;
       scoreGain += result.scoreGain;
+      mergedValues.push(...result.mergedValues);
     });
   } else {
     for (let colIndex = 0; colIndex < size; colIndex += 1) {
@@ -100,6 +106,7 @@ export function moveBoard(board: Board, direction: Direction): MoveResult {
       }
 
       scoreGain += result.scoreGain;
+      mergedValues.push(...result.mergedValues);
     }
   }
 
@@ -107,6 +114,7 @@ export function moveBoard(board: Board, direction: Direction): MoveResult {
     board: nextBoard,
     scoreGain,
     moved: !boardsEqual(board, nextBoard),
+    mergedValues,
   };
 }
 
